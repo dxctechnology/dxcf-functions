@@ -3,7 +3,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -36,7 +36,7 @@ exports.handler = function(event, context) {
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
-      console.log('Calling: AssumeRole...');
+      console.info('Calling: AssumeRole...');
       params = {
         RoleArn: roleArn,
         RoleSessionName: 'AccountInformationSession'
@@ -48,12 +48,12 @@ exports.handler = function(event, context) {
           sendResponse(event, context, 'FAILED', responseData);
         }
         else {
-          console.log('Role: ' + roleArn + ' assumed');
+          console.info('Role: ' + roleArn + ' assumed');
           const ec2 = new AWS.EC2({accessKeyId: data.Credentials.AccessKeyId,
                                    secretAccessKey: data.Credentials.SecretAccessKey,
                                    sessionToken: data.Credentials.SessionToken});
 
-          console.log('Calling: DescribeSecurityGroups...');
+          console.info('Calling: DescribeSecurityGroups...');
           params = {
             Filters: [{Name: 'group-name', Values: [ groupName ]},
                       {Name: 'vpc-id',     Values: [ vpcId ]}]
@@ -69,7 +69,7 @@ exports.handler = function(event, context) {
                 let group = data.SecurityGroups.map(g => ({VpcId: g.VpcId, GroupId: g.GroupId, GroupName: g.GroupName}))[0];
                 responseData.VpcId = group.VpcId;
                 responseData.GroupName = group.GroupName;
-                console.log('Group: ' + group.GroupName + ' (' + group.GroupId + ')');
+                console.info('Group: ' + group.GroupName + ' (' + group.GroupId + ')');
                 sendResponse(event, context, 'SUCCESS', responseData, group.GroupId);
               }
               else if (data.SecurityGroups.length > 1) {
@@ -111,7 +111,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -129,13 +129,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 

@@ -4,7 +4,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -33,11 +33,11 @@ exports.handler = function(event, context) {
     return;
   }
 
-  console.log('DirectoryId: ' + dId);
-  console.log('Domain: ' + domain);
-  console.log('VpcCidrBlock: ' + vpcCidrBlock);
+  console.info('DirectoryId: ' + dId);
+  console.info('Domain: ' + domain);
+  console.info('VpcCidrBlock: ' + vpcCidrBlock);
 
-  console.log('Calculating: AmazonProvidedDNS Address...');
+  console.info('Calculating: AmazonProvidedDNS Address...');
   let vpcAddress = vpcCidrBlock.split('/')[0];
   let vpcOctets = vpcAddress.split('.');
   let vpcDecimal = ((((((+vpcOctets[0])  * 256)
@@ -51,7 +51,7 @@ exports.handler = function(event, context) {
                  + (dnsDecimal >>   8 & 255) + '.'
                  + (dnsDecimal        & 255);
 
-  console.log('DnsAddress: ' + dnsAddress);
+  console.info('DnsAddress: ' + dnsAddress);
 
   const AWS = require('aws-sdk');
   AWS.config.apiVersions = {
@@ -62,7 +62,7 @@ exports.handler = function(event, context) {
 
   switch (event.RequestType) {
     case 'Create':
-      console.log('Calling: CreateConditionalForwarder...');
+      console.info('Calling: CreateConditionalForwarder...');
       params = {
         DirectoryId: dId,
         DnsIpAddrs: [ dnsAddress ],
@@ -76,7 +76,7 @@ exports.handler = function(event, context) {
         }
         else {
           responseData = data;
-          console.log('ConditionalForwarder: ' + domain + ' created');
+          console.info('ConditionalForwarder: ' + domain + ' created');
 
           sendResponse(event, context, 'SUCCESS', responseData, domain);
         }
@@ -84,7 +84,7 @@ exports.handler = function(event, context) {
       break;
 
     case 'Update':
-      console.log('Calling: UpdateConditionalForwarder...');
+      console.info('Calling: UpdateConditionalForwarder...');
       params = {
         DirectoryId: dId,
         DnsIpAddrs: [ dnsAddress ],
@@ -99,7 +99,7 @@ exports.handler = function(event, context) {
         }
         else {
           responseData = data;
-          console.log('ConditionalForwarder: ' + domain + ' updated');
+          console.info('ConditionalForwarder: ' + domain + ' updated');
 
           sendResponse(event, context, 'SUCCESS', responseData, domain);
         }
@@ -107,7 +107,7 @@ exports.handler = function(event, context) {
       break;
 
     case 'Delete':
-      console.log('Calling: DeleteConditionalForwarder...');
+      console.info('Calling: DeleteConditionalForwarder...');
       params = {
         DirectoryId: dId,
         RemoteDomainName: domain
@@ -120,7 +120,7 @@ exports.handler = function(event, context) {
         }
         else {
           responseData = data;
-          console.log('ConditionalForwarder: ' + domain + ' deleted');
+          console.info('ConditionalForwarder: ' + domain + ' deleted');
 
           sendResponse(event, context, 'SUCCESS', responseData);
         }
@@ -146,7 +146,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -164,13 +164,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 

@@ -39,23 +39,23 @@ const validateEvent = (event, source, detailType, states) => {
 };
 
 const getInstance = async (instanceId) => {
-  console.log(`- Calling: DescribeInstances for Instance ${instanceId}...`);
+  console.info(`- Calling: DescribeInstances for Instance ${instanceId}...`);
   const params = {
     InstanceIds: [ instanceId ]
   };
   const data = await ec2.describeInstances(params).promise();
-  //console.log(`- DescribeInstances Data:\n${JSON.stringify(data, null, 2)}`);
+  //console.info(`- DescribeInstances Data:\n${JSON.stringify(data, null, 2)}`);
 
   return data.Reservations[0].Instances[0];
 };
 
 const getInstanceByPrivateIpAddress = async (privateIpAddress) => {
-  console.log(`- Calling: DescribeInstances with filter for Private IP ${privateIpAddress}...`);
+  console.info(`- Calling: DescribeInstances with filter for Private IP ${privateIpAddress}...`);
   const params = {
     Filters: [{ Name: 'private-ip-address', Values: [ privateIpAddress ] }]
   };
   const data = await ec2.describeInstances(params).promise();
-  //console.log(`- DescribeInstances Data:\n${JSON.stringify(data, null, 2)}`);
+  //console.info(`- DescribeInstances Data:\n${JSON.stringify(data, null, 2)}`);
 
   return (data.Reservations.length > 0) ? data.Reservations[0].Instances[0] : undefined;
 };
@@ -169,11 +169,11 @@ const validateHostName = (hostName, availabilityZone) => {
   const partialHostNameRegExp = getHostNameRegExp(availabilityZone, 'partial');
 
   if (fullHostNameRegExp.test(hostName)) {
-    console.log(`- HostName ${hostName} is a full hostname valid for availability zone ${availabilityZone}`);
+    console.info(`- HostName ${hostName} is a full hostname valid for availability zone ${availabilityZone}`);
     return true;
   }
   else if (partialHostNameRegExp.test(hostName)) {
-    console.log(`- HostName ${hostName} is a partial hostname valid for availability zone ${availabilityZone}`);
+    console.info(`- HostName ${hostName} is a partial hostname valid for availability zone ${availabilityZone}`);
     return false;
   }
   else {
@@ -183,32 +183,32 @@ const validateHostName = (hostName, availabilityZone) => {
 
 const getVpcPrivateHostedZoneId = async (vpcId) => {
   // As of August 2019, there is no faster way to get the ID of the Private HostedZone associated with a VPC
-  console.log('- Calling: ListHostedZonesByName...');
+  console.info('- Calling: ListHostedZonesByName...');
   const params = {
     MaxItems: '100'
   };
   const data = await route53.listHostedZonesByName(params).promise();
-  //console.log(`- listHostedZonesByName Data:\n${JSON.stringify(data, null, 2)}`);
+  //console.info(`- listHostedZonesByName Data:\n${JSON.stringify(data, null, 2)}`);
 
   if (data.HostedZones.filter(z => z.Config.PrivateZone == true).length > 0) {
     const hostedZones = data.HostedZones.filter(z => z.Config.PrivateZone == true)
                                         .map(z => ({ Id: z.Id.replace('/hostedzone/',''), Name: z.Name}));
-    //console.log(`- Private HostedZones:\n${JSON.stringify(hostedZones, null, 2)}`);
-    console.log(`- Found ${hostedZones.length} Private HostedZones`);
+    //console.info(`- Private HostedZones:\n${JSON.stringify(hostedZones, null, 2)}`);
+    console.info(`- Found ${hostedZones.length} Private HostedZones`);
 
-    console.log(`- Calling: GetHostedZone for ${hostedZones.length} HostedZones...`);
+    console.info(`- Calling: GetHostedZone for ${hostedZones.length} HostedZones...`);
     const getPromises = [];
     for (const hostedZone of hostedZones) {
-      //console.log(`- Calling: GetHostedZone for Hosted Zone ${hostedZone.Id}...`);
+      //console.info(`- Calling: GetHostedZone for Hosted Zone ${hostedZone.Id}...`);
       const params = {
         Id: hostedZone.Id
       };
       getPromises.push(route53.getHostedZone(params).promise());
     }
 
-    console.log(`- Waiting for all GetHostedZone calls to finish...`);
+    console.info(`- Waiting for all GetHostedZone calls to finish...`);
     const results = await Promise.all(getPromises);
-    //console.log(`- All Results:\n${JSON.stringify(results, null, 2)}`);
+    //console.info(`- All Results:\n${JSON.stringify(results, null, 2)}`);
 
     return results.filter(r => r.VPCs.map(v => v.VPCId).filter(v => v == vpcId)[0])
                   .map(r => r.HostedZone.Id.replace('/hostedzone/',''))[0];
@@ -219,13 +219,13 @@ const getVpcPrivateHostedZoneId = async (vpcId) => {
 };
 
 const getRecordSets = async (hostedZoneId) => {
-  console.log(`- Calling: ListResourceRecordSets for Hosted Zone ${hostedZoneId}...`);
+  console.info(`- Calling: ListResourceRecordSets for Hosted Zone ${hostedZoneId}...`);
   const params = {
     HostedZoneId: hostedZoneId,
     MaxItems: '1000'
   };
   const data = await route53.listResourceRecordSets(params).promise();
-  //console.log(`- listResourceRecordSets Data:\n${JSON.stringify(data, null, 2)}`);
+  //console.info(`- listResourceRecordSets Data:\n${JSON.stringify(data, null, 2)}`);
 
   return data.ResourceRecordSets;
 };
@@ -319,7 +319,7 @@ const constructCreateChange = (name, value) => {
   const type = 'A';
   const ttl = 300;
 
-  console.log(`- Constructing CREATE Change [ Action: ${action}, Name: ${name}, Type: ${type}, TTL: ${ttl}, Value: ${value} ]`);
+  console.info(`- Constructing CREATE Change [ Action: ${action}, Name: ${name}, Type: ${type}, TTL: ${ttl}, Value: ${value} ]`);
 
   return {
     Action: action,
@@ -335,7 +335,7 @@ const constructCreateChange = (name, value) => {
 const constructDeleteChange = (record) => {
   const action = 'DELETE';
 
-  console.log(`- Constructing DELETE Change [ Action: ${action}, Name: ${record.Name}, Type: ${record.Type}, TTL: ${record.TTL}, Value: ${record.ResourceRecords.map(v => v.Value)} ]`);
+  console.info(`- Constructing DELETE Change [ Action: ${action}, Name: ${record.Name}, Type: ${record.Type}, TTL: ${record.TTL}, Value: ${record.ResourceRecords.map(v => v.Value)} ]`);
 
   return {
     Action: action,
@@ -346,7 +346,7 @@ const constructDeleteChange = (record) => {
 const constructUpsertChange = (record, value) => {
   const action = 'UPSERT';
 
-  console.log(`- Constructing UPSERT Change [ Action: ${action}, Name: ${record.Name}, Type: ${record.Type}, TTL: ${record.TTL}, Value: ${value} ]`);
+  console.info(`- Constructing UPSERT Change [ Action: ${action}, Name: ${record.Name}, Type: ${record.Type}, TTL: ${record.TTL}, Value: ${value} ]`);
 
   return {
     Action: action,
@@ -364,8 +364,8 @@ const delay = async (ms) => {
 }
 
 const changeRecordSets = async (hostedZoneId, changes) => {
-  console.log(`- Calling: ChangeResourceRecordSets for Hosted Zone ${hostedZoneId}...`);
-  //console.log(`  - Changes: ${JSON.stringify(changes, null, 2)}`);
+  console.info(`- Calling: ChangeResourceRecordSets for Hosted Zone ${hostedZoneId}...`);
+  //console.info(`  - Changes: ${JSON.stringify(changes, null, 2)}`);
 
   let params = {
     HostedZoneId: hostedZoneId,
@@ -378,12 +378,12 @@ const changeRecordSets = async (hostedZoneId, changes) => {
   params = {
     Id: data.ChangeInfo.Id.replace('/change/','')
   };
-  console.log(`- Waiting for Change with ID ${params.Id} to synchronize...`);
+  console.info(`- Waiting for Change with ID ${params.Id} to synchronize...`);
 
   for (let i = 0; i < 9; i++) {
     const data = await route53.getChange(params).promise();
 
-    console.log('  - Status: ' + data.ChangeInfo.Status);
+    console.info('  - Status: ' + data.ChangeInfo.Status);
     if (data.ChangeInfo.Status == 'INSYNC') {
       return;
     }
@@ -399,29 +399,29 @@ const pruneHostNameRecordSets = async (hostedZoneId, hostName, domainName, avail
   const recordSets = await getRecordSets(hostedZoneId);
 
   const hostNameRecordSets = recordSets.filter(r => (r.Type == 'A' && specificHostNameRegExp.test(r.Name.replace(`.${domainName}.`, ''))));
-  //console.log(`- Pruning HostNameRecordSets:\n${JSON.stringify(hostNameRecordSets, null, 2)}`);
+  //console.info(`- Pruning HostNameRecordSets:\n${JSON.stringify(hostNameRecordSets, null, 2)}`);
 
   if (hostNameRecordSets.length > 0) {
-    console.log(`- Calling: DescribeInstances for ${hostNameRecordSets.length} HostName RecordSets...`);
+    console.info(`- Calling: DescribeInstances for ${hostNameRecordSets.length} HostName RecordSets...`);
     const getPromises = [];
     for (const hostNameRecordSet of hostNameRecordSets) {
       const privateIpAddress = getRecordSetIpAddress(hostNameRecordSet);
-      //console.log(`- Calling: DescribeInstances with filter for Private IP ${privateIpAddress}...`);
+      //console.info(`- Calling: DescribeInstances with filter for Private IP ${privateIpAddress}...`);
       const params = {
         Filters: [{ Name: 'private-ip-address', Values: [ privateIpAddress ] }]
       };
       getPromises.push(ec2.describeInstances(params).promise());
     }
 
-    console.log(`- Waiting for all DescribeInstances calls to finish...`);
+    console.info(`- Waiting for all DescribeInstances calls to finish...`);
     const results = await Promise.all(getPromises);
-    //console.log(`- All Results:\n${JSON.stringify(results, null, 2)}`);
+    //console.info(`- All Results:\n${JSON.stringify(results, null, 2)}`);
 
     const changes = [];
     for (let i = 0; i < results.length; i++) {
       if (results[i].Reservations.length == 0) {
         changes.push(constructDeleteChange(hostNameRecordSets[i]));
-        console.log(i);
+        console.info(i);
       }
     }
 
@@ -432,20 +432,20 @@ const pruneHostNameRecordSets = async (hostedZoneId, hostName, domainName, avail
 };
 
 exports.handler = async (event, context) => {
-  console.log(`Event:\n${JSON.stringify(event)}`);
+  console.info(`Event:\n${JSON.stringify(event)}`);
 
   const prune = parseBoolean(process.env.PRUNE);
   const test = parseBoolean(process.env.TEST);
 
   if (test) {
-    console.log(`Test Mode: replace 3-letter CompanyCode at start of HostName tags with 'tst' to avoid changing actual RecordSets`);
+    console.info(`Test Mode: replace 3-letter CompanyCode at start of HostName tags with 'tst' to avoid changing actual RecordSets`);
   }
 
-  console.log('Validating Event...');
+  console.info('Validating Event...');
   validateEvent(event, 'aws.ec2', 'EC2 Instance State-change Notification', [ 'running', 'stopped', 'shutting-down' ]);
 
   const instanceId = event.detail['instance-id'];
-  console.log(`Obtaining Instance ${instanceId}...`);
+  console.info(`Obtaining Instance ${instanceId}...`);
   const instance = await getInstance(instanceId);
   const availabilityZone = instance.Placement.AvailabilityZone;
   const privateIpAddress = instance.PrivateIpAddress;
@@ -457,19 +457,19 @@ exports.handler = async (event, context) => {
       hostName = hostName.replace(/^.../, 'tst');
     }
 
-    console.log(`HostName Tag found, validating Value ${hostName}...`);
+    console.info(`HostName Tag found, validating Value ${hostName}...`);
     const hostNameIsFull = validateHostName(hostName, availabilityZone);
 
-    console.log(`Obtaining Private HostedZone for VPC ${vpcId}...`);
+    console.info(`Obtaining Private HostedZone for VPC ${vpcId}...`);
     const hostedZoneId = await getVpcPrivateHostedZoneId(vpcId);
 
     if (hostedZoneId) {
-      console.log(`VPC ${vpcId}, Private HostedZone ${hostedZoneId}`);
-      console.log(`Instance ${instanceId} ${event.detail.state}, HostName ${hostName}, IP ${privateIpAddress}`);
+      console.info(`VPC ${vpcId}, Private HostedZone ${hostedZoneId}`);
+      console.info(`Instance ${instanceId} ${event.detail.state}, HostName ${hostName}, IP ${privateIpAddress}`);
 
       let changes = [];
 
-      console.log(`Obtaining HostName Resource Records for Private HostedZone ${hostedZoneId}...`);
+      console.info(`Obtaining HostName Resource Records for Private HostedZone ${hostedZoneId}...`);
       const recordSets = await getRecordSets(hostedZoneId);
       const domainName = getDomainName(recordSets);
       const hostNameRecordSets = getHostNameRecordSets(recordSets, hostName, domainName, availabilityZone);
@@ -479,16 +479,16 @@ exports.handler = async (event, context) => {
       let privateIpRecordSetHostName;
 
       if (hostNameRecordSets.length > 0) {
-        console.log(`${hostNameRecordSets.length} HostName RecordSet(s) found`);
-        //console.log(`Matching HostName RecordSets:\n${JSON.stringify(hostNameRecordSets, null, 2)}`);
+        console.info(`${hostNameRecordSets.length} HostName RecordSet(s) found`);
+        //console.info(`Matching HostName RecordSets:\n${JSON.stringify(hostNameRecordSets, null, 2)}`);
 
         if (hostNameIsFull) {
-          console.log(`Finding ResourceRecord for Exact HostName ${hostName}...`);
+          console.info(`Finding ResourceRecord for Exact HostName ${hostName}...`);
           hostNameRecordSet = getRecordSetByName(hostNameRecordSets, hostName, domainName);
           hostNameRecordSetPrivateIpAddress = getRecordSetIpAddress(hostNameRecordSet);
         }
 
-        console.log(`Finding ResourceRecord for current IP ${privateIpAddress}...`);
+        console.info(`Finding ResourceRecord for current IP ${privateIpAddress}...`);
         privateIpRecordSet = getRecordSetByIpAddress(hostNameRecordSets, privateIpAddress);
         privateIpRecordSetHostName = getRecordSetHostName(privateIpRecordSet);
       }
@@ -496,7 +496,7 @@ exports.handler = async (event, context) => {
       switch (event.detail.state) {
         case 'running':
           if (hostNameRecordSet && privateIpRecordSet && hostNameRecordSet === privateIpRecordSet) {
-            console.log(`RecordSet found: HostName ${hostName}, IP ${privateIpAddress} - NO ACTION (restart after stop)`);
+            console.info(`RecordSet found: HostName ${hostName}, IP ${privateIpAddress} - NO ACTION (restart after stop)`);
           }
           else if ((hostNameRecordSet && ! privateIpRecordSet) ||
                    (hostNameRecordSet && privateIpRecordSet && hostNameRecordSet !== privateIpRecordSet)) {
@@ -505,38 +505,38 @@ exports.handler = async (event, context) => {
               throw new Error(`RecordSet found: HostName ${hostName}, IP ${hostNameRecordSetPrivateIpAddress} - NO ACTION (IP in use by another Instance! Unable to update existing RecordSet)`);
             }
             else {
-              console.log(`RecordSet found: HostName ${hostName}, IP ${hostNameRecordSetPrivateIpAddress} - UPSERT (replacement Instance with modified IP)`);
+              console.info(`RecordSet found: HostName ${hostName}, IP ${hostNameRecordSetPrivateIpAddress} - UPSERT (replacement Instance with modified IP)`);
               changes.push(constructUpsertChange(hostNameRecordSet, privateIpAddress));
             }
           }
           else if (! hostNameRecordSet && privateIpRecordSet) {
-            console.log(`RecordSet found: HostName ${privateIpRecordSetHostName}, IP ${privateIpAddress} - NO ACTION (restart after stop, with HostName tag pattern)`);
+            console.info(`RecordSet found: HostName ${privateIpRecordSetHostName}, IP ${privateIpAddress} - NO ACTION (restart after stop, with HostName tag pattern)`);
           }
           else if (hostNameRecordSets.length > 0 && ! hostNameRecordSet && ! privateIpRecordSet) {
             const newHostName = getNextHostName(hostNameRecordSets);
-            console.log(`RecordSet(s) found which match HostName tag pattern, but none which match current Instance IP - CREATE (new Instance)`);
+            console.info(`RecordSet(s) found which match HostName tag pattern, but none which match current Instance IP - CREATE (new Instance)`);
             changes.push(constructCreateChange(`${newHostName}.${domainName}`, privateIpAddress));
           }
           else if (hostNameRecordSets.length == 0) {
             const newHostName = (hostNameIsFull) ? hostName : getFirstHostName(hostName, availabilityZone);
-            console.log(`RecordSet(s) not found - CREATE (new Instance)`);
+            console.info(`RecordSet(s) not found - CREATE (new Instance)`);
             changes.push(constructCreateChange(`${newHostName}.${domainName}`, privateIpAddress));
           }
           break;
 
         case 'stopped':
           if (! test) {
-            console.log(`event.detail.state: stopped ignored, except in test mode`);
+            console.info(`event.detail.state: stopped ignored, except in test mode`);
             break;
           }
 
         case 'shutting-down':
           if (hostNameRecordSet && privateIpRecordSet && hostNameRecordSet === privateIpRecordSet) {
-            console.log(`RecordSet found: HostName ${hostName}, IP ${privateIpAddress} - DELETE`);
+            console.info(`RecordSet found: HostName ${hostName}, IP ${privateIpAddress} - DELETE`);
             changes.push(constructDeleteChange(hostNameRecordSet));
           }
           else if (! hostNameRecordSet && privateIpRecordSet) {
-            console.log(`RecordSet found: HostName ${privateIpRecordSetHostName}, IP ${privateIpAddress} - DELETE`);
+            console.info(`RecordSet found: HostName ${privateIpRecordSetHostName}, IP ${privateIpAddress} - DELETE`);
             changes.push(constructDeleteChange(privateIpRecordSet));
           }
           break;
@@ -550,16 +550,16 @@ exports.handler = async (event, context) => {
       }
 
       if (event.detail.state == 'shutting-down' && prune) {
-        console.log(`Pruning HostName Resource Records for Private HostedZone ${hostedZoneId}...`);
+        console.info(`Pruning HostName Resource Records for Private HostedZone ${hostedZoneId}...`);
         await pruneHostNameRecordSets(hostedZoneId, hostName, domainName, availabilityZone);
       }
     }
     else {
-      console.log('Private HostedZone not associated with VPC');
+      console.info('Private HostedZone not associated with VPC');
     }
   }
   else {
-    console.log('HostName tag not found');
+    console.info('HostName tag not found');
   }
 
   return context.logStreamName;

@@ -4,7 +4,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -32,7 +32,7 @@ exports.handler = function(event, context) {
 
       const ec2 = new AWS.EC2();
 
-      console.log('Calling: DescribeRouteTables...');
+      console.info('Calling: DescribeRouteTables...');
       params = {
         Filters: [{ Name: 'vpc-id', Values: [vpcId] },
                   { Name: 'association.main', Values: ['true'] }]
@@ -40,7 +40,7 @@ exports.handler = function(event, context) {
       let rtbPromise = ec2.describeRouteTables(params).promise()
                                                       .then(data => data.RouteTables[0].RouteTableId);
 
-      console.log('Calling: DescribeNetworkAcls...');
+      console.info('Calling: DescribeNetworkAcls...');
       params = {
         Filters: [{ Name: 'vpc-id', Values: [vpcId] },
                   { Name: 'default', Values: ['true'] }]
@@ -48,7 +48,7 @@ exports.handler = function(event, context) {
       let aclPromise = ec2.describeNetworkAcls(params).promise()
                                                       .then(data => data.NetworkAcls[0].NetworkAclId);
 
-      console.log('Calling: DescribeSecurityGroups...');
+      console.info('Calling: DescribeSecurityGroups...');
       params = {
         Filters: [{ Name: 'vpc-id', Values: [vpcId] },
                   { Name: 'group-name', Values: ['default'] }]
@@ -56,7 +56,7 @@ exports.handler = function(event, context) {
       let sgPromise = ec2.describeSecurityGroups(params).promise()
                                                         .then(data => data.SecurityGroups[0].GroupId);
 
-      console.log('Calling: DescribeTags...');
+      console.info('Calling: DescribeTags...');
       params = {
         Filters: [{ Name: 'resource-id', Values: [vpcId] }]
       };
@@ -64,7 +64,7 @@ exports.handler = function(event, context) {
                                                    .then(data => data.Tags.filter(tag => ! tag.Key.startsWith('aws:'))
                                                                           .map(tag => ({Key: tag.Key, Value: tag.Value})));
 
-      console.log('Waiting: for Requests to complete...');
+      console.info('Waiting: for Requests to complete...');
       Promise.all([rtbPromise, aclPromise, sgPromise, vpcTagsPromise])
              .then(results => {
         let rtbId = results[0];
@@ -76,39 +76,39 @@ exports.handler = function(event, context) {
         let aclTags = vpcTags.map(tag => (tag.Key == 'Name' ? {Key: tag.Key, Value: tag.Value.replace(vpcToken, aclToken)} : {Key: tag.Key, Value: tag.Value}));
         let sgTags = vpcTags.map(tag => (tag.Key == 'Name' ? {Key: tag.Key, Value: tag.Value.replace(vpcToken, sgToken)} : {Key: tag.Key, Value: tag.Value}));
 
-        console.log('Main RouteTable: ' + rtbId);
-        console.log('Default NetworkAcl: ' + aclId);
-        console.log('Default SecurityGroup: ' + sgId);
+        console.info('Main RouteTable: ' + rtbId);
+        console.info('Default NetworkAcl: ' + aclId);
+        console.info('Default SecurityGroup: ' + sgId);
 
-        console.log('Main RouteTable Tags: \n', rtbTags);
-        console.log('Default NetworkAcl Tags: \n', aclTags);
-        console.log('Default SecurityGroup Tags: \n', sgTags);
+        console.info('Main RouteTable Tags: \n', rtbTags);
+        console.info('Default NetworkAcl Tags: \n', aclTags);
+        console.info('Default SecurityGroup Tags: \n', sgTags);
 
-        console.log('Calling: CreateTags (for Main RouteTable)...');
+        console.info('Calling: CreateTags (for Main RouteTable)...');
         params = {
           Resources: [rtbId],
           Tags: rtbTags
         };
         let rtbCreateTagsPromise = ec2.createTags(params).promise();
 
-        console.log('Calling: CreateTags (for Default NetworkAcl)...');
+        console.info('Calling: CreateTags (for Default NetworkAcl)...');
         params = {
           Resources: [aclId],
           Tags: aclTags
         };
         let aclCreateTagsPromise = ec2.createTags(params).promise();
 
-        console.log('Calling: CreateTags (for Default SecurityGroup)...');
+        console.info('Calling: CreateTags (for Default SecurityGroup)...');
         params = {
           Resources: [sgId],
           Tags: sgTags
         };
         let sgCreateTagsPromise = ec2.createTags(params).promise();
 
-        console.log('Waiting: for Requests to complete...');
+        console.info('Waiting: for Requests to complete...');
         Promise.all([rtbCreateTagsPromise, aclCreateTagsPromise, sgCreateTagsPromise])
                .then(results => {
-          console.log('Success: Default Resources Tagged');
+          console.info('Success: Default Resources Tagged');
 
           sendResponse(event, context, 'SUCCESS');
         }).catch(error => {
@@ -149,7 +149,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -167,13 +167,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 

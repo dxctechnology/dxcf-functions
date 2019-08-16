@@ -4,7 +4,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -25,8 +25,8 @@ exports.handler = function(event, context) {
     return;
   }
 
-  console.log('DirectoryId: ' + dId);
-  console.log('LogGroup: ' + lgName);
+  console.info('DirectoryId: ' + dId);
+  console.info('LogGroup: ' + lgName);
 
   const AWS = require('aws-sdk');
   AWS.config.apiVersions = {
@@ -37,7 +37,7 @@ exports.handler = function(event, context) {
 
   switch (event.RequestType) {
     case 'Create':
-      console.log('Calling: CreateLogSubscription...');
+      console.info('Calling: CreateLogSubscription...');
       params = {
         DirectoryId: dId,
         LogGroupName: lgName
@@ -50,19 +50,19 @@ exports.handler = function(event, context) {
         }
         else {
           responseData = data;
-          console.log('LogSubscription: ' + lgName + ' created');
+          console.info('LogSubscription: ' + lgName + ' created');
           sendResponse(event, context, 'SUCCESS', responseData, lgName);
         }
       });
       break;
 
     case 'Update':
-      console.log('Note: Update attempted, but a Directory Log Subscription does not support an update operation, so no actions will be taken');
+      console.info('Note: Update attempted, but a Directory Log Subscription does not support an update operation, so no actions will be taken');
       sendResponse(event, context, 'SUCCESS', dAlias);
       break;
 
     case 'Delete':
-      console.log('Calling: DeleteLogSubscription...');
+      console.info('Calling: DeleteLogSubscription...');
       params = {
         DirectoryId: dId
       };
@@ -74,7 +74,7 @@ exports.handler = function(event, context) {
         }
         else {
           responseData = data;
-          console.log('LogSubscription: deleted');
+          console.info('LogSubscription: deleted');
           sendResponse(event, context, 'SUCCESS', responseData);
         }
       });
@@ -99,7 +99,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -117,13 +117,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 

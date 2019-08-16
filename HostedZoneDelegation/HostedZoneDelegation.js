@@ -8,7 +8,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -32,9 +32,9 @@ exports.handler = function(event, context) {
   }
   nameServers = nameServers.map(ns => ns.endsWith('.') ? ns : ns + '.');
 
-  console.log('ParentDomainName: ' + parentDomainName.replace(/\.$/, ''));
-  console.log('DomainName: ' + domainName.replace(/\.$/, ''));
-  console.log('NameServers: [ ' + nameServers.map(ns => ns.replace(/\.$/, '')).join(', ') + ' ]');
+  console.info('ParentDomainName: ' + parentDomainName.replace(/\.$/, ''));
+  console.info('DomainName: ' + domainName.replace(/\.$/, ''));
+  console.info('NameServers: [ ' + nameServers.map(ns => ns.replace(/\.$/, '')).join(', ') + ' ]');
 
   const AWS = require('aws-sdk');
   AWS.config.update({region: 'us-east-1'}); // Global service only available in us-east-1
@@ -47,7 +47,7 @@ exports.handler = function(event, context) {
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
-      console.log('Calling: ListHostedZonesByName...');
+      console.info('Calling: ListHostedZonesByName...');
       params = {
         MaxItems: '100'
       };
@@ -60,9 +60,9 @@ exports.handler = function(event, context) {
         else {
           let zone = data.HostedZones.filter(z => z.Name == parentDomainName && z.Config.PrivateZone == false)[0];
           if (zone) {
-            console.log('Zone: ' + zone.Id.replace('/hostedzone/','') + ', Domain: ' + zone.Name.replace(/\.$/, ''));
+            console.info('Zone: ' + zone.Id.replace('/hostedzone/','') + ', Domain: ' + zone.Name.replace(/\.$/, ''));
 
-            console.log('Calling: ChangeResourceRecordSets[UPSERT]...');
+            console.info('Calling: ChangeResourceRecordSets[UPSERT]...');
             let params = {
               HostedZoneId: zone.Id.replace('/hostedzone/',''),
               ChangeBatch: {
@@ -90,12 +90,12 @@ exports.handler = function(event, context) {
                 let params = {
                   Id: data.ChangeInfo.Id.replace('/change/','')
                 };
-                console.log('ChangeId: ' + params.Id);
+                console.info('ChangeId: ' + params.Id);
 
                 let i = 0;
                 let intervalTimer = setInterval(() => {
                   if (i++ < 12) {
-                    console.log('Calling: GetChange[' + i + ']...');
+                    console.info('Calling: GetChange[' + i + ']...');
                     route53.getChange(params, function(err, data) {
                       if (err) {
                         clearInterval(intervalTimer);
@@ -104,11 +104,11 @@ exports.handler = function(event, context) {
                         sendResponse(event, context, 'FAILED', responseData);
                       }
                       else {
-                        console.log('Status: ' + data.ChangeInfo.Status);
+                        console.info('Status: ' + data.ChangeInfo.Status);
                         if (data.ChangeInfo.Status == 'INSYNC') {
                           clearInterval(intervalTimer);
                           const physicalResourceId = domainName.replace(/\.$/, '') + '[' + nameServers.map(ns => ns.replace(/\.$/, '')).toString() + ']';
-                          console.log('HostedZoneDelegation: ' + physicalResourceId);
+                          console.info('HostedZoneDelegation: ' + physicalResourceId);
                           sendResponse(event, context, 'SUCCESS', responseData, physicalResourceId);
                         }
                       }
@@ -134,7 +134,7 @@ exports.handler = function(event, context) {
       break;
 
     case 'Delete':
-      console.log('Calling: ListHostedZonesByName...');
+      console.info('Calling: ListHostedZonesByName...');
       params = {
         MaxItems: '100'
       };
@@ -147,11 +147,11 @@ exports.handler = function(event, context) {
         else {
           let zone = data.HostedZones.filter(z => z.Name == parentDomainName && z.Config.PrivateZone == false)[0];
           if (zone) {
-            console.log('Zone: ' + zone.Id.replace('/hostedzone/','') + ', Domain: ' + zone.Name.replace(/\.$/, ''));
+            console.info('Zone: ' + zone.Id.replace('/hostedzone/','') + ', Domain: ' + zone.Name.replace(/\.$/, ''));
 
             // We need to obtain the current list of NameServers, in case they were changed, as we can only delete
             // the NS record if we have an exact match, and we always want that to happen.
-            console.log('Calling: listResourceRecordSets...');
+            console.info('Calling: listResourceRecordSets...');
             params = {
               HostedZoneId: zone.Id,
               MaxItems: '1000'
@@ -167,7 +167,7 @@ exports.handler = function(event, context) {
                 if (domainNSRecordSet) {
                   let domainNSTTL = domainNSRecordSet.TTL;
                   let domainNSValues = domainNSRecordSet.ResourceRecords.map(o => o.Value);
-                  console.log('Calling: ChangeResourceRecordSets[DELETE]...');
+                  console.info('Calling: ChangeResourceRecordSets[DELETE]...');
                   let params = {
                     HostedZoneId: zone.Id.replace('/hostedzone/',''),
                     ChangeBatch: {
@@ -195,12 +195,12 @@ exports.handler = function(event, context) {
                       let params = {
                         Id: data.ChangeInfo.Id.replace('/change/','')
                       };
-                      console.log('ChangeId: ' + params.Id);
+                      console.info('ChangeId: ' + params.Id);
 
                       let i = 0;
                       let intervalTimer = setInterval(() => {
                         if (i++ < 12) {
-                          console.log('Calling: GetChange[' + i + ']...');
+                          console.info('Calling: GetChange[' + i + ']...');
                           route53.getChange(params, function(err, data) {
                             if (err) {
                               clearInterval(intervalTimer);
@@ -209,10 +209,10 @@ exports.handler = function(event, context) {
                               sendResponse(event, context, 'SUCCESS', responseData);
                             }
                             else {
-                              console.log('Status: ' + data.ChangeInfo.Status);
+                              console.info('Status: ' + data.ChangeInfo.Status);
                               if (data.ChangeInfo.Status == 'INSYNC') {
                                 clearInterval(intervalTimer);
-                                console.log('HostedZoneDelegation: Deleted');
+                                console.info('HostedZoneDelegation: Deleted');
                                 sendResponse(event, context, 'SUCCESS');
                               }
                             }
@@ -230,7 +230,7 @@ exports.handler = function(event, context) {
                 }
                 else {
                   responseData = {Info: 'Could not find NS RecordSet for ' + domainName.replace(/\.$/, '')};
-                  console.log('Info: ' + responseData.Info);
+                  console.info('Info: ' + responseData.Info);
                   sendResponse(event, context, 'SUCCESS', responseData);
                 }
               }
@@ -238,7 +238,7 @@ exports.handler = function(event, context) {
           }
           else {
             responseData = {Info: 'Could not find Public HostedZone for ' + parentDomainName.replace(/\.$/, '')};
-            console.log('Info: ' + responseData.Info);
+            console.info('Info: ' + responseData.Info);
             sendResponse(event, context, 'SUCCESS', responseData);
           }
         }
@@ -264,7 +264,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   let srcAccountId = event.ServiceToken.split(':')[4];
   let dstAccountId = event.ResourceProperties.AccountId;
@@ -272,7 +272,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   // This function can be called direct by CloudFormation within the same Account,
   // Or via a Lambda proxy function in another Account, for Multi-Account integration
   if (! dstAccountId || dstAccountId == srcAccountId) {
-    console.log('Invoked by current Account: Responding to CloudFormation');
+    console.info('Invoked by current Account: Responding to CloudFormation');
 
     const https = require('https');
     const url = require('url');
@@ -290,13 +290,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     };
 
     let request = https.request(options, function(response) {
-      console.log('Status code: ' + response.statusCode);
-      console.log('Status message: ' + response.statusMessage);
+      console.info('Status code: ' + response.statusCode);
+      console.info('Status message: ' + response.statusMessage);
       context.done();
     });
 
     request.on('error', function(error) {
-      console.log('send(..) failed executing https.request(..): ' + error);
+      console.info('send(..) failed executing https.request(..): ' + error);
       context.done();
     });
 
@@ -304,7 +304,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     request.end();
   }
   else {
-    console.log('Invoked by Account ' + srcAccountId + ': Responding to Lambda');
+    console.info('Invoked by Account ' + srcAccountId + ': Responding to Lambda');
     context.succeed(responseBody);
   }
 }

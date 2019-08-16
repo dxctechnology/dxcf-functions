@@ -6,7 +6,7 @@ let responseData;
 let params = {};
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   responseData = {};
 
@@ -36,7 +36,7 @@ exports.handler = function(event, context) {
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
-      console.log('Calling: AssumeRole...');
+      console.info('Calling: AssumeRole...');
       params = {
         RoleArn: roleArn,
         RoleSessionName: 'AccountInformationSession'
@@ -48,7 +48,7 @@ exports.handler = function(event, context) {
           sendResponse(event, context, 'FAILED', responseData);
         }
         else {
-          console.log('Role: ' + roleArn + ' assumed');
+          console.info('Role: ' + roleArn + ' assumed');
           let cloudformation = new AWS.CloudFormation({accessKeyId: data.Credentials.AccessKeyId,
                                                        secretAccessKey: data.Credentials.SecretAccessKey,
                                                        sessionToken: data.Credentials.SessionToken});
@@ -70,7 +70,7 @@ exports.handler = function(event, context) {
 };
 
 function getExport(event, context, cloudformation, exportName, params) {
-  console.log('Calling: ListExports...');
+  console.info('Calling: ListExports...');
   cloudformation.listExports(params, function(err, data) {
     if (err) {
       responseData = {Error: 'ListExports call failed'};
@@ -78,11 +78,11 @@ function getExport(event, context, cloudformation, exportName, params) {
       sendResponse(event, context, 'FAILED', responseData);
     }
     else {
-      console.log('Finding: Export...');
+      console.info('Finding: Export...');
       let e = data.Exports.find(e => e.Name === exportName)
       if (e) {
         responseData.Name = e.Name;
-        console.log('Export: ' + e.Name + ' = ' + e.Value);
+        console.info('Export: ' + e.Name + ' = ' + e.Value);
         sendResponse(event, context, 'SUCCESS', responseData, e.Value);
       }
       else {
@@ -112,7 +112,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -130,13 +130,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 

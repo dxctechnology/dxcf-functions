@@ -4,7 +4,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -47,7 +47,7 @@ exports.handler = function(event, context) {
     case 'Create':
     case 'Update':
     case 'Delete':
-      console.log('Calling: AssumeRole...');
+      console.info('Calling: AssumeRole...');
       params = {
         RoleArn: roleArn,
         RoleSessionName: 'HostedZoneDelegationSession'
@@ -59,12 +59,12 @@ exports.handler = function(event, context) {
           sendResponse(event, context, 'FAILED', responseData);
         }
         else {
-          console.log('Role: ' + roleArn + ' assumed');
+          console.info('Role: ' + roleArn + ' assumed');
           const lambda = new AWS.Lambda({accessKeyId: data.Credentials.AccessKeyId,
                                          secretAccessKey: data.Credentials.SecretAccessKey,
                                          sessionToken: data.Credentials.SessionToken});
 
-          console.log('Calling: Invoke[' + functionName + ']...');
+          console.info('Calling: Invoke[' + functionName + ']...');
           params = {
             FunctionName: functionName,
             Payload: JSON.stringify(event)
@@ -76,16 +76,16 @@ exports.handler = function(event, context) {
               sendResponse(event, context, 'FAILED', responseData);
             }
             else {
-              console.log('Invoke succeeeded');
+              console.info('Invoke succeeeded');
               try {
                 let payload = JSON.parse(data.Payload);
-                console.log('payload: [' + payload + ']');
+                console.info('payload: [' + payload + ']');
 
                 let responseBody = JSON.parse(payload);
 
                 if (responseBody.Status == 'SUCCESS') {
                   const physicalResourceId = responseBody.PhysicalResourceId;
-                  console.log('HostedZone Delegation: ' + physicalResourceId);
+                  console.info('HostedZone Delegation: ' + physicalResourceId);
                   sendResponse(event, context, 'SUCCESS', responseData, physicalResourceId);
                 }
                 else {
@@ -124,7 +124,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -142,13 +142,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 

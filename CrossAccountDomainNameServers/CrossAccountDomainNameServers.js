@@ -4,7 +4,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -46,7 +46,7 @@ exports.handler = function(event, context) {
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
-      console.log('Calling: AssumeRole...');
+      console.info('Calling: AssumeRole...');
       params = {
         RoleArn: roleArn,
         RoleSessionName: 'DomainNameServersSession'
@@ -58,12 +58,12 @@ exports.handler = function(event, context) {
           sendResponse(event, context, 'FAILED', responseData);
         }
         else {
-          console.log('Role: ' + roleArn + ' assumed');
+          console.info('Role: ' + roleArn + ' assumed');
           const lambda = new AWS.Lambda({accessKeyId: data.Credentials.AccessKeyId,
                                          secretAccessKey: data.Credentials.SecretAccessKey,
                                          sessionToken: data.Credentials.SessionToken});
 
-          console.log('Calling: Invoke[' + functionName + ']...');
+          console.info('Calling: Invoke[' + functionName + ']...');
           params = {
             FunctionName: functionName,
             Payload: JSON.stringify(event)
@@ -75,16 +75,16 @@ exports.handler = function(event, context) {
               sendResponse(event, context, 'FAILED', responseData);
             }
             else {
-              console.log('Invoke succeeeded');
+              console.info('Invoke succeeeded');
               try {
                 let payload = JSON.parse(data.Payload);
-                console.log('payload: [' + payload + ']');
+                console.info('payload: [' + payload + ']');
 
                 let responseBody = JSON.parse(payload);
 
                 if (responseBody.Status == 'SUCCESS') {
                   const physicalResourceId = responseBody.PhysicalResourceId;
-                  console.log('Domain NameServers: ' + physicalResourceId);
+                  console.info('Domain NameServers: ' + physicalResourceId);
                   sendResponse(event, context, 'SUCCESS', responseData, physicalResourceId);
                 }
                 else {
@@ -105,7 +105,7 @@ exports.handler = function(event, context) {
       break;
 
     case 'Delete':
-      console.log('Note: Delete attempted, but Domain NameServers can not be removed, only updated, so no actions will be taken');
+      console.info('Note: Delete attempted, but Domain NameServers can not be removed, only updated, so no actions will be taken');
       sendResponse(event, context, 'SUCCESS');
       break;
 
@@ -128,7 +128,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -146,13 +146,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 

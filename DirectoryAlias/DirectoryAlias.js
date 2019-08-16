@@ -4,7 +4,7 @@
 **/
 
 exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+  console.info('Request body:\n' + JSON.stringify(event));
 
   let responseData = {};
   let params = {};
@@ -27,9 +27,9 @@ exports.handler = function(event, context) {
 
   let enableSso = (/^(true|yes|1)$/i).test(event.ResourceProperties.EnableSso);
 
-  console.log('DirectoryId = ' + dId);
-  console.log('DirectoryAlias = ' + dAlias);
-  console.log('EnableSso = ' + enableSso);
+  console.info('DirectoryId = ' + dId);
+  console.info('DirectoryAlias = ' + dAlias);
+  console.info('EnableSso = ' + enableSso);
 
   const AWS = require('aws-sdk');
   AWS.config.apiVersions = {
@@ -40,7 +40,7 @@ exports.handler = function(event, context) {
 
   switch (event.RequestType) {
     case 'Create':
-      console.log('Calling: CreateAlias...');
+      console.info('Calling: CreateAlias...');
       params = {
         DirectoryId: dId,
         Alias: dAlias
@@ -53,10 +53,10 @@ exports.handler = function(event, context) {
         }
         else {
           responseData = data;
-          console.log('Alias: ' + dAlias + ' created');
+          console.info('Alias: ' + dAlias + ' created');
 
           if (enableSso) {
-            console.log('Calling: EnableSso...');
+            console.info('Calling: EnableSso...');
             params = {
               DirectoryId: dId
             };
@@ -67,7 +67,7 @@ exports.handler = function(event, context) {
                 sendResponse(event, context, 'FAILED', responseData);
               }
               else {
-                console.log('Enabled: SSO');
+                console.info('Enabled: SSO');
                 sendResponse(event, context, 'SUCCESS', responseData, dAlias);
               }
             });
@@ -80,12 +80,12 @@ exports.handler = function(event, context) {
       break;
 
     case 'Update':
-      console.log('Note: Update attempted, but a Directory Alias can not be removed or modified after it has been created, so no actions will be taken');
+      console.info('Note: Update attempted, but a Directory Alias can not be removed or modified after it has been created, so no actions will be taken');
       sendResponse(event, context, 'SUCCESS', dAlias);
       break;
 
     case 'Delete':
-      console.log('Note: Delete attempted, but a Directory Alias can not be removed or modified after it has been created, so no actions will be taken');
+      console.info('Note: Delete attempted, but a Directory Alias can not be removed or modified after it has been created, so no actions will be taken');
       sendResponse(event, context, 'SUCCESS');
       break;
 
@@ -108,7 +108,7 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
     Data: responseData
   });
 
-  console.log('Response body:\n', responseBody);
+  console.info('Response body:\n', responseBody);
 
   const https = require('https');
   const url = require('url');
@@ -126,13 +126,13 @@ function sendResponse(event, context, responseStatus, responseData, physicalReso
   };
 
   let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
+    console.info('Status code: ' + response.statusCode);
+    console.info('Status message: ' + response.statusMessage);
     context.done();
   });
 
   request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
+    console.info('send(..) failed executing https.request(..): ' + error);
     context.done();
   });
 
