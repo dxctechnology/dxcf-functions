@@ -6,6 +6,7 @@ save/
 
 # Lambda deployment packages
 *.zip
+*.zip.base64
 
 # Logs
 logs
