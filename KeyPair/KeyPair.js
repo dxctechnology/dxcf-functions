@@ -16,10 +16,9 @@ AWS.config.apiVersions = {
 };
 
 const ec2 = new AWS.EC2();
-let responseData = {};
 
 const getKeyPair = async (keyName) => {
-  console.debug(`Calling: DescribeKeyPairs for Key ${keyName}...`);
+  console.info(`Calling: DescribeKeyPairs for Key ${keyName}...`);
   const params = {
     Filters: [{ Name: 'key-name', Values: [keyName] }]
   }
@@ -27,8 +26,7 @@ const getKeyPair = async (keyName) => {
 };
 
 const importKeyPair = async (keyName, publicKeyMaterial) => {
-  console.debug(`Calling: ImportKeyPair for Key ${keyName}...`);
-
+  console.info(`Calling: ImportKeyPair for Key ${keyName}...`);
   const params = {
     KeyName: keyName,
     PublicKeyMaterial: publicKeyMaterial
@@ -37,7 +35,7 @@ const importKeyPair = async (keyName, publicKeyMaterial) => {
 };
 
 const deleteKeyPair = async (keyName) => {
-  console.debug(`Calling: DeleteKeyPair for Key ${keyName}...`);
+  console.info(`Calling: DeleteKeyPair for Key ${keyName}...`);
   const params = {
     KeyName: keyName
   };
@@ -45,26 +43,27 @@ const deleteKeyPair = async (keyName) => {
 };
 
 exports.handler = async (event, context) => {
-  console.debug(`Event:\n${JSON.stringify(event)}`);
+  console.info(`Event:\n${JSON.stringify(event)}`);
 
-  const keyName = event.ResourceProperties.KeyName;
-  if (! /^[a-z][a-z0-9]{3,63}$/.test(keyName)) {
-    responseData = {Error: `KeyName invalid: must be a 4 - 64-character string which starts with a lower-case letter and consists of lower-case letters and digits`};
-    console.error(`Error: ${responseData.Error}`);
+  try {
+    const keyName = event.ResourceProperties.KeyName;
+    if (! /^[a-z][a-z0-9]{3,63}$/.test(keyName)) {
+      throw new Error(`KeyName invalid: must be a 4 - 64-character string which starts with a lower-case letter and consists of lower-case letters and digits`);
+    }
+
+    const publicKey = event.ResourceProperties.PublicKey;
+    if (! /^ssh-rsa AAAAB3NzaC1yc2E[=/+A-Za-z0-9]{701}( .*)?$/.test(publicKey)) {
+      throw new Error(`PublicKey invalid: Key is not in valid OpenSSH public key format`);
+    }
+  }
+  catch (err) {
+    const responseData = {Error: `KeyPair Parameters invalid: See the details in CloudWatch Log Stream: ${context.logStreamName}`};
+    console.error(`Error: ${responseData.Error}:\n${err}`);
     await response.send(event, context, response.FAILED, responseData);
-    return;
   }
 
-  const publicKey = event.ResourceProperties.PublicKey;
-  if (! /^ssh-rsa AAAAB3NzaC1yc2E[=/+A-Za-z0-9]{701}( .*)?$/.test(publicKey)) {
-    responseData = {Error: `PublicKey invalid: Key is not in valid OpenSSH public key format`};
-    console.error(`Error: ${responseData.Error}`);
-    await response.send(event, context, response.FAILED, responseData);
-    return;
-  }
-
-  console.debug(`KeyName: ${keyName}`);
-  console.debug(`PublicKey: ${pubicKey}`);
+  console.info(`KeyName: ${keyName}`);
+  console.info(`PublicKey: ${pubicKey}`);
 
   switch (event.RequestType) {
     case 'Create':
@@ -82,7 +81,7 @@ exports.handler = async (event, context) => {
         await response.send(event, context, response.SUCCESS, responseData, fingerprint);
       }
       catch (err) {
-        responseData = {Error: `Could not ${(event.RequestType) ? 'create' : 'update'} KeyPair`};
+        const responseData = {Error: `Could not ${(event.RequestType) ? 'create' : 'update'} KeyPair: See the details in CloudWatch Log Stream: ${context.logStreamName}`};
         console.error(`Error: ${responseData.Error}:\n${err}`);
         await response.send(event, context, response.FAILED, responseData);
       }
@@ -91,26 +90,22 @@ exports.handler = async (event, context) => {
     case 'Delete':
       try {
         const keyPair = await getKeyPair(keyName);
+        const fingerprint = keyPair.KeyFingerprint;
 
         if (keyPair) {
           await deleteKeyPair(keyName);
+
+          console.info(`KeyPair: ${keyName} with fingerprint ${fingerprint} deleted`);
         }
-
-        const fingerprint = keyPair.KeyFingerprint;
-
-        console.info(`KeyPair: ${keyName} with fingerprint ${fingerprint} ${(keyPair) ? 'created' : 'updated'}`);
-        await response.send(event, context, response.SUCCESS, responseData, fingerprint);
+        else {
+          console.info(`KeyPair: ${keyName} not found`);
+        }
+        await response.send(event, context, response.SUCCESS);
       }
       catch (err) {
-        responseData = {Error: `Could not ${(event.RequestType) ? 'create' : 'update'} KeyPair`};
+        const responseData = {Error: `Could not delete KeyPair: See the details in CloudWatch Log Stream: ${context.logStreamName}`};
         console.error(`Error: ${responseData.Error}:\n${err}`);
         await response.send(event, context, response.FAILED, responseData);
       }
-      break;
-
-    default:
-      responseData = {Error: `Unknown operation: ${event.RequestType}`};
-      console.error(`Error: ${responseData.Error}`);
-      await response.send(event, context, response.FAILED, responseData);
   }
 };
