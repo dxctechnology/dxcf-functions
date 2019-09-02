@@ -89,7 +89,7 @@ const getHostNameRegExp = (availabilityZone, type = 'full') => {
       locationCode = 'ae1';
       break;
     case 'ap-south-1': // Asia Pacific (Mumbai)
-      locationCode = 'is1'; // Note - difference from other code mappings
+      locationCode = 'id1'; // Note - difference from other code mappings
       break;
     case 'ap-northeast-2': // Asia Pacific (Seoul)
       locationCode = 'an2';
