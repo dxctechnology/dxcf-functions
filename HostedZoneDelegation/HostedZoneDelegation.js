@@ -7,304 +7,200 @@
 * different account CustomResource.
 **/
 
-exports.handler = function(event, context) {
-  console.info('Request body:\n' + JSON.stringify(event));
+const response = require('cfn-response-promise');
 
-  let responseData = {};
-  let params = {};
+const AWS = require('aws-sdk');
+AWS.config.update({region: 'us-east-1'}); // Global service only available in us-east-1
+AWS.config.apiVersions = {
+  route53: '2013-04-01'
+};
 
-  let domainName = event.ResourceProperties.DomainName;
-  if (! domainName) {
-    responseData = {Error: 'DomainName missing!'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
-  domainName = domainName.endsWith('.') ? domainName : domainName + '.';
-  let parentDomainName = domainName.replace(/^[^.]*\./, '');
+const route53 = new AWS.Route53();
 
-  let nameServers = event.ResourceProperties.NameServers;
-  if (! nameServers) {
-    responseData = {Error: 'NameServers missing'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
-  nameServers = nameServers.map(ns => ns.endsWith('.') ? ns : ns + '.');
-
-  console.info('ParentDomainName: ' + parentDomainName.replace(/\.$/, ''));
-  console.info('DomainName: ' + domainName.replace(/\.$/, ''));
-  console.info('NameServers: [ ' + nameServers.map(ns => ns.replace(/\.$/, '')).join(', ') + ' ]');
-
-  const AWS = require('aws-sdk');
-  AWS.config.update({region: 'us-east-1'}); // Global service only available in us-east-1
-  AWS.config.apiVersions = {
-    route53: '2013-04-01'
+const getPrivateHostedZoneId = async (domainName) => {
+  const params = {
+    MaxItems: '100'
   };
+  const data = await route53.listHostedZonesByName(params).promise();
+  //console.info(`- ListHostedZonesByName Data:\n${JSON.stringify(data, null, 2)}`);
 
-  const route53 = new AWS.Route53();
+  const hostedZones = data.HostedZones.filter(z => z.Name == domainName && z.Config.PrivateZone == false);
+
+  return (hostedZones) ? hostedZones[0].Id.replace('/hostedzone/','') : undefined;
+};
+
+const getdomainNSRecordSet = async (hostedZoneId, domainName) => {
+  const params = {
+    HostedZoneId: hostedZoneId,
+    MaxItems: '1000'
+  };
+  const data = await route53.listResourceRecordSets(params).promise();
+  //console.info(`- ListResourceRecordSets Data:\n${JSON.stringify(data, null, 2)}`);
+
+  const domainNSRecordSets = data.ResourceRecordSets.filter(r => (r.Type == 'NS' && r.Name == domainName));
+
+  return (domainNSRecordSets) ? domainNSRecordSets[0] : undefined;
+};
+
+const constructNSUpsertChange = (name, nameServers, ttl = 3600) => {
+  const action = 'UPSERT';
+  const type = 'NS';
+
+  return {
+    Action: action,
+    ResourceRecordSet: {
+      Name: name,
+      Type: type,
+      TTL: ttl,
+      ResourceRecords: [{ Value: nameServers[0] },
+                        { Value: nameServers[1] },
+                        { Value: nameServers[2] },
+                        { Value: nameServers[3] }]
+    }
+  };
+};
+
+const constructDeleteChange = (record) => {
+  const action = 'DELETE';
+
+  return {
+    Action: action,
+    ResourceRecordSet: record
+  };
+};
+
+const delay = async (ms) => {
+  return await new Promise(resolve => setTimeout(resolve, ms));
+};
+
+const changeRecordSets = async (hostedZoneId, changes, interval = 10000, checks = 9) => {
+  //console.info(`  - Changes: ${JSON.stringify(changes, null, 2)}`);
+
+  let params = {
+    HostedZoneId: hostedZoneId,
+    ChangeBatch: {
+      Changes: changes
+    }
+  };
+  const data = await route53.changeResourceRecordSets(params).promise();
+
+  params = {
+    Id: data.ChangeInfo.Id.replace('/change/','')
+  };
+  console.info(`- Waiting for Change with ID ${params.Id} to synchronize...`);
+
+  for (let i = 0; i < checks; i++) {
+    const data = await route53.getChange(params).promise();
+
+    console.info('  - Status: ' + data.ChangeInfo.Status);
+    if (data.ChangeInfo.Status == 'INSYNC') {
+      return;
+    }
+    await delay(interval);
+  }
+
+  throw new Error(`Change status was not 'INSYNC' within ${(checks * interval) / 1000} seconds`);
+};
+
+exports.handler = async (event, context) => {
+  console.info(`Request Body:\n${JSON.stringify(event)}`);
 
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
-      console.info('Calling: ListHostedZonesByName...');
-      params = {
-        MaxItems: '100'
-      };
-      route53.listHostedZonesByName(params, function(err, data) {
-        if (err) {
-          responseData = {Error: 'ListHostedZonesByName call failed'};
-          console.error('Error: ' + responseData.Error + ':\n', err);
-          sendResponse(event, context, 'FAILED', responseData);
+      try {
+        let domainName = event.ResourceProperties.DomainName;
+        if (! domainName) {
+          throw new Error(`DomainName missing!`);
+        }
+        domainName = domainName.endsWith('.') ? domainName : domainName + '.';
+        const parentDomainName = domainName.replace(/^[^.]*\./, '');
+
+        let nameServers = event.ResourceProperties.NameServers;
+        if (! nameServers) {
+          throw new Error(`NameServers missing`);
+        }
+        nameServers = nameServers.map(ns => ns.endsWith('.') ? ns : ns + '.');
+
+        console.info(`ParentDomainName: ${parentDomainName.replace(/\.$/, '')}`);
+        console.info(`DomainName: ${domainName.replace(/\.$/, '')}`);
+        console.info(`NameServers: [ ${nameServers.map(ns => ns.replace(/\.$/, '')).join(', ')} ]`);
+
+        console.info(`Calling getPrivateHostedZoneId(${parentDomainName})...`);
+        const hostedZoneId = await getPrivateHostedZoneId(parentDomainName);
+        if (hostedZoneId) {
+          console.info(`Zone: ${hostedZoneId}, Domain: ${parentDomainName}`);
+
+          const changes = [];
+          changes.push(constructNSUpsertChange(domainName, nameServers));
+
+          console.info(`Calling changeRecordSets...`);
+          await changeRecordSets(hostedZoneId, changes);
+
+          const physicalResourceId = domainName.replace(/\.$/, '') + '[' + nameServers.map(ns => ns.replace(/\.$/, '')).toString() + ']';
+          console.info('HostedZoneDelegation: ' + physicalResourceId);
+          await response.send(event, context, response.SUCCESS, null, physicalResourceId);
         }
         else {
-          let zone = data.HostedZones.filter(z => z.Name == parentDomainName && z.Config.PrivateZone == false)[0];
-          if (zone) {
-            console.info('Zone: ' + zone.Id.replace('/hostedzone/','') + ', Domain: ' + zone.Name.replace(/\.$/, ''));
-
-            console.info('Calling: ChangeResourceRecordSets[UPSERT]...');
-            let params = {
-              HostedZoneId: zone.Id.replace('/hostedzone/',''),
-              ChangeBatch: {
-                Changes: [{
-                  Action: "UPSERT",
-                  ResourceRecordSet: {
-                    Name: domainName,
-                    Type: 'NS',
-                    TTL: 3600,
-                    ResourceRecords: [{ Value: nameServers[0] },
-                                      { Value: nameServers[1] },
-                                      { Value: nameServers[2] },
-                                      { Value: nameServers[3] }]
-                  }
-                }]
-              }
-            };
-            route53.changeResourceRecordSets(params, function(err, data) {
-              if (err) {
-                responseData = {Error: 'ChangeResourceRecordSets call failed'};
-                console.error('Error: ' + responseData.Error + ':\n', err);
-                sendResponse(event, context, 'FAILED', responseData);
-              }
-              else {
-                let params = {
-                  Id: data.ChangeInfo.Id.replace('/change/','')
-                };
-                console.info('ChangeId: ' + params.Id);
-
-                let i = 0;
-                let intervalTimer = setInterval(() => {
-                  if (i++ < 12) {
-                    console.info('Calling: GetChange[' + i + ']...');
-                    route53.getChange(params, function(err, data) {
-                      if (err) {
-                        clearInterval(intervalTimer);
-                        responseData = {Error: 'GetChange call failed'};
-                        console.error('Error: ' + responseData.Error + ':\n', err);
-                        sendResponse(event, context, 'FAILED', responseData);
-                      }
-                      else {
-                        console.info('Status: ' + data.ChangeInfo.Status);
-                        if (data.ChangeInfo.Status == 'INSYNC') {
-                          clearInterval(intervalTimer);
-                          const physicalResourceId = domainName.replace(/\.$/, '') + '[' + nameServers.map(ns => ns.replace(/\.$/, '')).toString() + ']';
-                          console.info('HostedZoneDelegation: ' + physicalResourceId);
-                          sendResponse(event, context, 'SUCCESS', responseData, physicalResourceId);
-                        }
-                      }
-                    });
-                  }
-                  else {
-                    clearInterval(intervalTimer);
-                    responseData = {Error: 'ChangeResourceRecordSets did not succeed in within 120 seconds'};
-                    console.error('Error: ' + responseData.Error + ':\n', err);
-                    sendResponse(event, context, 'FAILED', responseData);
-                  }
-                }, 10000);
-              }
-            });
-          }
-          else {
-            responseData = {Error: 'Could not find Public HostedZone for ' + parentDomainName.replace(/\.$/, '')};
-            console.error('Error: ' + responseData.Error);
-            sendResponse(event, context, 'FAILED', responseData);
-          }
+          throw new Error(`Could not find Public HostedZone for ${parentDomainName.replace(/\.$/, '')}`);
         }
-      });
+      }
+      catch (err) {
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
+        await response.send(event, context, response.FAILED, responseData);
+      }
       break;
 
     case 'Delete':
-      console.info('Calling: ListHostedZonesByName...');
-      params = {
-        MaxItems: '100'
-      };
-      route53.listHostedZonesByName(params, function(err, data) {
-        if (err) {
-          responseData = {Error: 'ListHostedZonesByName call failed'};
-          console.error('Error: ' + responseData.Error + ':\n', err);
-          sendResponse(event, context, 'FAILED', responseData);
+      try {
+        let domainName = event.ResourceProperties.DomainName;
+        if (! domainName) {
+          throw new Error(`DomainName missing!`);
         }
-        else {
-          let zone = data.HostedZones.filter(z => z.Name == parentDomainName && z.Config.PrivateZone == false)[0];
-          if (zone) {
-            console.info('Zone: ' + zone.Id.replace('/hostedzone/','') + ', Domain: ' + zone.Name.replace(/\.$/, ''));
+        domainName = domainName.endsWith('.') ? domainName : domainName + '.';
+        const parentDomainName = domainName.replace(/^[^.]*\./, '');
 
-            // We need to obtain the current list of NameServers, in case they were changed, as we can only delete
-            // the NS record if we have an exact match, and we always want that to happen.
-            console.info('Calling: listResourceRecordSets...');
-            params = {
-              HostedZoneId: zone.Id,
-              MaxItems: '1000'
-            };
-            route53.listResourceRecordSets(params, function(err, data) {
-              if (err) {
-                responseData = {Error: 'ListResourceRecordSets call failed'};
-                console.error('Error: ' + responseData.Error + ':\n', err);
-                sendResponse(event, context, 'FAILED', responseData);
-              }
-              else {
-                let domainNSRecordSet = data.ResourceRecordSets.filter(r => (r.Type == 'NS' && r.Name == domainName))[0];
-                if (domainNSRecordSet) {
-                  let domainNSTTL = domainNSRecordSet.TTL;
-                  let domainNSValues = domainNSRecordSet.ResourceRecords.map(o => o.Value);
-                  console.info('Calling: ChangeResourceRecordSets[DELETE]...');
-                  let params = {
-                    HostedZoneId: zone.Id.replace('/hostedzone/',''),
-                    ChangeBatch: {
-                      Changes: [{
-                        Action: "DELETE",
-                        ResourceRecordSet: {
-                          Name: domainName,
-                          Type: 'NS',
-                          TTL: domainNSTTL,
-                          ResourceRecords: [{ Value: domainNSValues[0] },
-                                            { Value: domainNSValues[1] },
-                                            { Value: domainNSValues[2] },
-                                            { Value: domainNSValues[3] }]
-                        }
-                      }]
-                    }
-                  };
-                  route53.changeResourceRecordSets(params, function(err, data) {
-                    if (err) {
-                      responseData = {Error: 'ChangeResourceRecordSets call failed'};
-                      console.error('Error: ' + responseData.Error + ':\n', err);
-                      sendResponse(event, context, 'FAILED', responseData);
-                    }
-                    else {
-                      let params = {
-                        Id: data.ChangeInfo.Id.replace('/change/','')
-                      };
-                      console.info('ChangeId: ' + params.Id);
+        console.info(`Calling getPrivateHostedZoneId(${parentDomainName})...`);
+        const hostedZoneId = await getPrivateHostedZoneId(parentDomainName);
+        if (hostedZoneId) {
+          console.info(`Zone: ${hostedZoneId}, Domain: ${parentDomainName}`);
 
-                      let i = 0;
-                      let intervalTimer = setInterval(() => {
-                        if (i++ < 12) {
-                          console.info('Calling: GetChange[' + i + ']...');
-                          route53.getChange(params, function(err, data) {
-                            if (err) {
-                              clearInterval(intervalTimer);
-                              responseData = {Warning: 'GetChange call failed - but still likely to succeed'};
-                              console.error('Warning: ' + responseData.Warning + ':\n', err);
-                              sendResponse(event, context, 'SUCCESS', responseData);
-                            }
-                            else {
-                              console.info('Status: ' + data.ChangeInfo.Status);
-                              if (data.ChangeInfo.Status == 'INSYNC') {
-                                clearInterval(intervalTimer);
-                                console.info('HostedZoneDelegation: Deleted');
-                                sendResponse(event, context, 'SUCCESS');
-                              }
-                            }
-                          });
-                        }
-                        else {
-                          clearInterval(intervalTimer);
-                          responseData = {Warning: 'ChangeResourceRecordSets did not succeed in within 120 seconds - but still likely to succeed'};
-                          console.error('Warning: ' + responseData.Warning + ':\n', err);
-                          sendResponse(event, context, 'SUCCESS', responseData);
-                        }
-                      }, 10000);
-                    }
-                  });
-                }
-                else {
-                  responseData = {Info: 'Could not find NS RecordSet for ' + domainName.replace(/\.$/, '')};
-                  console.info('Info: ' + responseData.Info);
-                  sendResponse(event, context, 'SUCCESS', responseData);
-                }
-              }
-            });
+          // We need to obtain the current NS RecordSet, in case name servers were changed.
+          // We can only delete the NS record if we have an exact match, and we always want that to succeed.
+          console.info(`Calling getdomainNSRecordSet(${hostedZoneId}, ${domainName})...`);
+          const domainNSRecordSet = await getdomainNSRecordSet(hostedZoneId, domainName);
+          if (domainNSRecordSet) {
+            const changes = [];
+            changes.push(constructDeleteChange(domainNSRecordSet));
+
+            console.info(`Calling changeRecordSets...`);
+            await changeRecordSets(hostedZoneId, changes);
+
+            console.info(`HostedZoneDelegation: Deleted`);
+            await response.send(event, context, response.SUCCESS);
           }
           else {
-            responseData = {Info: 'Could not find Public HostedZone for ' + parentDomainName.replace(/\.$/, '')};
-            console.info('Info: ' + responseData.Info);
-            sendResponse(event, context, 'SUCCESS', responseData);
+            const responseData = {Info: `Could not find NS RecordSet for ${domainName.replace(/\.$/, '')}`};
+            console.info(responseData.Info);
+            await response.send(event, context, response.SUCCESS, responseData);
           }
         }
-      });
-      break;
-
-    default:
-      responseData = {Error: 'Unknown operation: ' + event.RequestType};
-      console.error('Error: ' + responseData.Error);
-      sendResponse(event, context, 'FAILED', responseData);
+        else {
+          const responseData = {Info: `Could not find Public HostedZone for ${parentDomainName.replace(/\.$/, '')}`};
+          console.info(responseData.Info);
+          await response.send(event, context, response.SUCCESS, responseData);
+        }
+      }
+      catch (err) {
+        if (err.message.startsWith(`Change status was not 'INSYNC'`)) {
+          const responseData = {Warning: `${err.message} - but still likely to succeed`};
+          console.error(responseData.Warning);
+          await response.send(event, context, response.SUCCESS, responseData);
+        }
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
+        await response.send(event, context, response.FAILED, responseData);
+      }
   }
 };
-
-function sendResponse(event, context, responseStatus, responseData, physicalResourceId, noEcho) {
-  let responseBody = JSON.stringify({
-    Status: responseStatus,
-    Reason: 'See the details in CloudWatch Log Stream: ' + context.logStreamName,
-    PhysicalResourceId: physicalResourceId || context.logStreamName,
-    StackId: event.StackId,
-    RequestId: event.RequestId,
-    LogicalResourceId: event.LogicalResourceId,
-    NoEcho: noEcho || false,
-    Data: responseData
-  });
-
-  console.info('Response body:\n', responseBody);
-
-  let srcAccountId = event.ServiceToken.split(':')[4];
-  let dstAccountId = event.ResourceProperties.AccountId;
-
-  // This function can be called direct by CloudFormation within the same Account,
-  // Or via a Lambda proxy function in another Account, for Multi-Account integration
-  if (! dstAccountId || dstAccountId == srcAccountId) {
-    console.info('Invoked by current Account: Responding to CloudFormation');
-
-    const https = require('https');
-    const url = require('url');
-
-    let parsedUrl = url.parse(event.ResponseURL);
-    let options = {
-      hostname: parsedUrl.hostname,
-      port: 443,
-      path: parsedUrl.path,
-      method: 'PUT',
-      headers: {
-        'content-type': '',
-        'content-length': responseBody.length
-      }
-    };
-
-    let request = https.request(options, function(response) {
-      console.info('Status code: ' + response.statusCode);
-      console.info('Status message: ' + response.statusMessage);
-      context.done();
-    });
-
-    request.on('error', function(error) {
-      console.info('send(..) failed executing https.request(..): ' + error);
-      context.done();
-    });
-
-    request.write(responseBody);
-    request.end();
-  }
-  else {
-    console.info('Invoked by Account ' + srcAccountId + ': Responding to Lambda');
-    context.succeed(responseBody);
-  }
-}
