@@ -45,30 +45,23 @@ const deleteKeyPair = async (keyName) => {
 exports.handler = async (event, context) => {
   console.info(`Event:\n${JSON.stringify(event)}`);
 
-  try {
-    const keyName = event.ResourceProperties.KeyName;
-    if (! /^[a-z][a-z0-9]{3,63}$/.test(keyName)) {
-      throw new Error(`KeyName invalid: must be a 4 - 64-character string which starts with a lower-case letter and consists of lower-case letters and digits`);
-    }
-
-    const publicKey = event.ResourceProperties.PublicKey;
-    if (! /^ssh-rsa AAAAB3NzaC1yc2E[=/+A-Za-z0-9]{701}( .*)?$/.test(publicKey)) {
-      throw new Error(`PublicKey invalid: Key is not in valid OpenSSH public key format`);
-    }
-  }
-  catch (err) {
-    const responseData = {Error: `KeyPair Parameters invalid: See the details in CloudWatch Log Stream: ${context.logStreamName}`};
-    console.error(`Error: ${responseData.Error}:\n${err}`);
-    await response.send(event, context, response.FAILED, responseData);
-  }
-
-  console.info(`KeyName: ${keyName}`);
-  console.info(`PublicKey: ${pubicKey}`);
-
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
       try {
+        const keyName = event.ResourceProperties.KeyName;
+        if (! /^[a-z][a-z0-9]{3,63}$/.test(keyName)) {
+          throw new Error(`KeyName invalid: must be a 4 - 64-character string which starts with a lower-case letter and consists of lower-case letters and digits`);
+        }
+
+        const publicKey = event.ResourceProperties.PublicKey;
+        if (! /^ssh-rsa AAAAB3NzaC1yc2E[=/+A-Za-z0-9]{701}( .*)?$/.test(publicKey)) {
+          throw new Error(`PublicKey invalid: Key is not in valid OpenSSH public key format`);
+        }
+
+        console.info(`KeyName: ${keyName}`);
+        console.info(`PublicKey: ${publicKey}`);
+
         const keyPair = await getKeyPair(keyName);
 
         if (keyPair) {
@@ -76,25 +69,29 @@ exports.handler = async (event, context) => {
         }
 
         const fingerprint = await importKeyPair(keyName, publicKey);
-
+        const responseData = {Fingerprint: fingerprint};
         console.info(`KeyPair: ${keyName} with fingerprint ${fingerprint} ${(keyPair) ? 'created' : 'updated'}`);
-        await response.send(event, context, response.SUCCESS, responseData, fingerprint);
+        await response.send(event, context, response.SUCCESS, responseData, keyName);
       }
       catch (err) {
-        const responseData = {Error: `Could not ${(event.RequestType) ? 'create' : 'update'} KeyPair: See the details in CloudWatch Log Stream: ${context.logStreamName}`};
-        console.error(`Error: ${responseData.Error}:\n${err}`);
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
         await response.send(event, context, response.FAILED, responseData);
       }
       break;
 
     case 'Delete':
       try {
+        const keyName = event.ResourceProperties.KeyName;
+        if (! /^[a-z][a-z0-9]{3,63}$/.test(keyName)) {
+          throw new Error(`KeyName invalid: must be a 4 - 64-character string which starts with a lower-case letter and consists of lower-case letters and digits`);
+        }
+
         const keyPair = await getKeyPair(keyName);
-        const fingerprint = keyPair.KeyFingerprint;
 
         if (keyPair) {
+          const fingerprint = keyPair.KeyFingerprint;
           await deleteKeyPair(keyName);
-
           console.info(`KeyPair: ${keyName} with fingerprint ${fingerprint} deleted`);
         }
         else {
@@ -103,8 +100,8 @@ exports.handler = async (event, context) => {
         await response.send(event, context, response.SUCCESS);
       }
       catch (err) {
-        const responseData = {Error: `Could not delete KeyPair: See the details in CloudWatch Log Stream: ${context.logStreamName}`};
-        console.error(`Error: ${responseData.Error}:\n${err}`);
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
         await response.send(event, context, response.FAILED, responseData);
       }
   }
