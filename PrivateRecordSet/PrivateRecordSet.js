@@ -363,7 +363,7 @@ const delay = async (ms) => {
   return await new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const changeRecordSets = async (hostedZoneId, changes) => {
+const changeRecordSets = async (hostedZoneId, changes, interval = 10000, checks = 9) => {
   console.info(`- Calling: ChangeResourceRecordSets for Hosted Zone ${hostedZoneId}...`);
   //console.info(`  - Changes: ${JSON.stringify(changes, null, 2)}`);
 
@@ -380,17 +380,17 @@ const changeRecordSets = async (hostedZoneId, changes) => {
   };
   console.info(`- Waiting for Change with ID ${params.Id} to synchronize...`);
 
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < checks; i++) {
     const data = await route53.getChange(params).promise();
 
     console.info('  - Status: ' + data.ChangeInfo.Status);
     if (data.ChangeInfo.Status == 'INSYNC') {
       return;
     }
-    await delay(10000);
+    await delay(interval);
   }
 
-  throw new Error(`Change status unknown`);
+  throw new Error(`Change status was not 'INSYNC' within ${(checks * interval) / 1000} seconds`);
 };
 
 const pruneHostNameRecordSets = async (hostedZoneId, hostName, domainName, availabilityZone) => {
