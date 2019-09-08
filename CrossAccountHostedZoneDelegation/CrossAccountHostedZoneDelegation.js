@@ -3,155 +3,97 @@
 * HostedZone in another Account.
 **/
 
-exports.handler = function(event, context) {
-  console.info('Request body:\n' + JSON.stringify(event));
+const response = require('cfn-response-promise');
 
-  let responseData = {};
-  let params = {};
+const AWS = require('aws-sdk');
+//AWS.config.update({region: process.env.AWS_REGION});
+AWS.config.apiVersions = {
+  sts: '2011-06-15',
+  lambda: '2015-03-31'
+};
 
-  let region = (event.ResourceProperties.Region) ? event.ResourceProperties.Region : process.env.AWS_REGION;
-
-  let accountId = (event.ResourceProperties.AccountId) ? event.ResourceProperties.AccountId : context.invokedFunctionArn.split(':')[4];
-
-  let domainName = event.ResourceProperties.DomainName;
-  if (! domainName) {
-    responseData = {Error: 'DomainName missing'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
-  domainName = domainName.endsWith('.') ? domainName : domainName + '.';
-
-  let nameServers = event.ResourceProperties.NameServers;
-  if (! nameServers) {
-    responseData = {Error: 'NameServers missing'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
-  nameServers = nameServers.map(ns => ns.endsWith('.') ? ns : ns + '.');
-
-  let roleArn = 'arn:aws:iam::' + accountId + ':role/CrossAccountHostedZoneDelegationRole';
-  let functionName = 'HostedZoneDelegation';
-
-  const AWS = require('aws-sdk');
-  AWS.config.update({region: region});
-  AWS.config.apiVersions = {
-    sts: '2011-06-15',
-    lambda: '2015-03-31'
-  };
-
+const assumeRole = async (roleArn, roleSessionName) => {
   const sts = new AWS.STS();
+
+  const params = {
+    RoleArn: roleArn,
+    RoleSessionName: roleSessionName
+  };
+  const data = await sts.assumeRole(params).promise();
+  //console.info(`- AssumeRole Data:\n${JSON.stringify(data, null, 2)}`);
+
+  return data.Credentials;
+};
+
+const invokeCustomResourceFunction = async (credentials, functionName, event) => {
+  const lambda = new AWS.Lambda({accessKeyId: credentials.AccessKeyId,
+                                 secretAccessKey: credentials.SecretAccessKey,
+                                 sessionToken: credentials.SessionToken});
+
+  const params = {
+    FunctionName: functionName,
+    Payload: JSON.stringify(event)
+  };
+  const data = await lambda.invoke(params).promise();
+
+  return data.Payload;
+};
+
+exports.handler =  async (event, context) => {
+  console.info(`Request Body:\n${JSON.stringify(event)}`);
 
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
     case 'Delete':
-      console.info('Calling: AssumeRole...');
-      params = {
-        RoleArn: roleArn,
-        RoleSessionName: 'HostedZoneDelegationSession'
-      };
-      sts.assumeRole(params, function(err, data) {
-        if (err) {
-          responseData = {Error: 'AssumeRole call failed'};
-          console.error('Error: ' + responseData.Error + ':\n', err);
-          sendResponse(event, context, 'FAILED', responseData);
+      try {
+        const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
+
+        let domainName = event.ResourceProperties.DomainName;
+        if (! domainName) {
+          throw new Error(`DomainName missing!`);
+        }
+        domainName = domainName.endsWith('.') ? domainName : domainName + '.';
+
+        let nameServers = event.ResourceProperties.NameServers;
+        if (! nameServers) {
+          throw new Error(`NameServers missing`);
+        }
+        nameServers = nameServers.map(ns => ns.endsWith('.') ? ns : ns + '.');
+
+        const roleName = 'CrossAccountHostedZoneDelegationRole';
+        const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
+        const roleSessionName = 'HostedZoneDelegationSession';
+        const functionName = 'HostedZoneDelegation';
+
+        console.info(`Calling: assumeRole...`);
+        const credentials = await assumeRole(roleArn, roleSessionName);
+        console.info(`Role: ${roleArn} assumed`);
+
+        console.info(`Calling: invokeCustomResourceFunction...`);
+        const payload = await invokeCustomResourceFunction(credentials, functionName, event);
+        console.info(`Invoke succeeeded`);
+
+        const parsedPayload = JSON.parse(payload);
+        console.info(`Payload: [${parsedPayload}]`);
+
+        const responseBody = JSON.parse(parsedPayload);
+
+        if (responseBody.Status == 'SUCCESS') {
+          const physicalResourceId = responseBody.PhysicalResourceId;
+          console.info(`HostedZone Delegation: ${physicalResourceId}`);
+          await response.send(event, context, response.SUCCESS, {}, physicalResourceId);
         }
         else {
-          console.info('Role: ' + roleArn + ' assumed');
-          const lambda = new AWS.Lambda({accessKeyId: data.Credentials.AccessKeyId,
-                                         secretAccessKey: data.Credentials.SecretAccessKey,
-                                         sessionToken: data.Credentials.SessionToken});
-
-          console.info('Calling: Invoke[' + functionName + ']...');
-          params = {
-            FunctionName: functionName,
-            Payload: JSON.stringify(event)
-          };
-          lambda.invoke(params, function(err, data) {
-            if (err) {
-              responseData = {Error: 'Invoke call failed'};
-              console.error('Error: ' + responseData.Error + ':\n', err);
-              sendResponse(event, context, 'FAILED', responseData);
-            }
-            else {
-              console.info('Invoke succeeeded');
-              try {
-                let payload = JSON.parse(data.Payload);
-                console.info('payload: [' + payload + ']');
-
-                let responseBody = JSON.parse(payload);
-
-                if (responseBody.Status == 'SUCCESS') {
-                  const physicalResourceId = responseBody.PhysicalResourceId;
-                  console.info('HostedZone Delegation: ' + physicalResourceId);
-                  sendResponse(event, context, 'SUCCESS', responseData, physicalResourceId);
-                }
-                else {
-                  responseData = responseBody.data;
-                  console.error('Error: ' + responseData.Error);
-                  sendResponse(event, context, 'FAILED', responseData);
-                }
-              }
-              catch (err) {
-                responseData = {Error: 'Could not parse Payload'};
-                console.error('Error: ' + responseData.Error + ':\n', err);
-                sendResponse(event, context, 'FAILED', responseData);
-              }
-            }
-          });
+          const responseData = responseBody.data;
+          console.error(responseData.Error);
+          await response.send(event, context, response.FAILED, responseData);
         }
-      });
-      break;
-
-    default:
-      responseData = {Error: 'Unknown operation: ' + event.RequestType};
-      console.error('Error: ' + responseData.Error);
-      sendResponse(event, context, 'FAILED', responseData);
+      }
+      catch (err) {
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
+        await response.send(event, context, response.FAILED, responseData);
+      }
   }
 };
-
-function sendResponse(event, context, responseStatus, responseData, physicalResourceId, noEcho) {
-  let responseBody = JSON.stringify({
-    Status: responseStatus,
-    Reason: 'See the details in CloudWatch Log Stream: ' + context.logStreamName,
-    PhysicalResourceId: physicalResourceId || context.logStreamName,
-    StackId: event.StackId,
-    RequestId: event.RequestId,
-    LogicalResourceId: event.LogicalResourceId,
-    NoEcho: noEcho || false,
-    Data: responseData
-  });
-
-  console.info('Response body:\n', responseBody);
-
-  const https = require('https');
-  const url = require('url');
-
-  let parsedUrl = url.parse(event.ResponseURL);
-  let options = {
-    hostname: parsedUrl.hostname,
-    port: 443,
-    path: parsedUrl.path,
-    method: 'PUT',
-    headers: {
-      'content-type': '',
-      'content-length': responseBody.length
-    }
-  };
-
-  let request = https.request(options, function(response) {
-    console.info('Status code: ' + response.statusCode);
-    console.info('Status message: ' + response.statusMessage);
-    context.done();
-  });
-
-  request.on('error', function(error) {
-    console.info('send(..) failed executing https.request(..): ' + error);
-    context.done();
-  });
-
-  request.write(responseBody);
-  request.end();
-}
