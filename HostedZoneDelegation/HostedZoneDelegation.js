@@ -92,7 +92,7 @@ const changeRecordSets = async (hostedZoneId, changes, interval = 10000, checks 
   for (let i = 0; i < checks; i++) {
     const data = await route53.getChange(params).promise();
 
-    console.info('  - Status: ' + data.ChangeInfo.Status);
+    console.info(`  - Status: ${data.ChangeInfo.Status}`);
     if (data.ChangeInfo.Status == 'INSYNC') {
       return;
     }
@@ -126,7 +126,7 @@ exports.handler = async (event, context) => {
         console.info(`DomainName: ${domainName.replace(/\.$/, '')}`);
         console.info(`NameServers: [ ${nameServers.map(ns => ns.replace(/\.$/, '')).join(', ')} ]`);
 
-        console.info(`Calling getPrivateHostedZoneId(${parentDomainName})...`);
+        console.info(`Calling: getPrivateHostedZoneId...`);
         const hostedZoneId = await getPrivateHostedZoneId(parentDomainName);
         if (hostedZoneId) {
           console.info(`Zone: ${hostedZoneId}, Domain: ${parentDomainName}`);
@@ -134,12 +134,12 @@ exports.handler = async (event, context) => {
           const changes = [];
           changes.push(constructNSUpsertChange(domainName, nameServers));
 
-          console.info(`Calling changeRecordSets...`);
+          console.info(`Calling: changeRecordSets...`);
           await changeRecordSets(hostedZoneId, changes);
 
           const physicalResourceId = domainName.replace(/\.$/, '') + '[' + nameServers.map(ns => ns.replace(/\.$/, '')).toString() + ']';
           console.info('HostedZoneDelegation: ' + physicalResourceId);
-          await response.send(event, context, response.SUCCESS, null, physicalResourceId);
+          await response.send(event, context, response.SUCCESS, {}, physicalResourceId);
         }
         else {
           throw new Error(`Could not find Public HostedZone for ${parentDomainName.replace(/\.$/, '')}`);
@@ -161,20 +161,22 @@ exports.handler = async (event, context) => {
         domainName = domainName.endsWith('.') ? domainName : domainName + '.';
         const parentDomainName = domainName.replace(/^[^.]*\./, '');
 
-        console.info(`Calling getPrivateHostedZoneId(${parentDomainName})...`);
+        console.info(`Calling: getPrivateHostedZoneId...`);
         const hostedZoneId = await getPrivateHostedZoneId(parentDomainName);
         if (hostedZoneId) {
           console.info(`Zone: ${hostedZoneId}, Domain: ${parentDomainName}`);
 
           // We need to obtain the current NS RecordSet, in case name servers were changed.
           // We can only delete the NS record if we have an exact match, and we always want that to succeed.
-          console.info(`Calling getdomainNSRecordSet(${hostedZoneId}, ${domainName})...`);
+          console.info(`Calling: getdomainNSRecordSet...`);
           const domainNSRecordSet = await getdomainNSRecordSet(hostedZoneId, domainName);
           if (domainNSRecordSet) {
+            console.info(`RecordSet found`);
+
             const changes = [];
             changes.push(constructDeleteChange(domainNSRecordSet));
 
-            console.info(`Calling changeRecordSets...`);
+            console.info(`Calling: changeRecordSets...`);
             await changeRecordSets(hostedZoneId, changes);
 
             console.info(`HostedZoneDelegation: Deleted`);
