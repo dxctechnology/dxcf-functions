@@ -5,7 +5,6 @@
 const response = require('cfn-response-promise');
 
 const AWS = require('aws-sdk');
-//AWS.config.update({region: process.env.AWS_REGION});
 AWS.config.apiVersions = {
   sts: '2011-06-15',
   ec2: '2016-11-15'

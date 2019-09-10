@@ -2,144 +2,96 @@
 * CrossAccountStackExport: A Lambda function that returns information about a single Stack Export which may be in another Account and/or Region.
 **/
 
-let responseData;
-let params = {};
+const response = require('cfn-response-promise');
 
-exports.handler = function(event, context) {
-  console.info('Request body:\n' + JSON.stringify(event));
+const AWS = require('aws-sdk');
+AWS.config.apiVersions = {
+  sts: '2011-06-15',
+  cloudformation: '2010-05-15'
+};
 
-  responseData = {};
-
-  let region = (event.ResourceProperties.Region) ? event.ResourceProperties.Region : process.env.AWS_REGION;
-
-  let accountId = (event.ResourceProperties.AccountId) ? event.ResourceProperties.AccountId : context.invokedFunctionArn.split(':')[4];
-
-  let exportName = event.ResourceProperties.ExportName;
-  if (! exportName) {
-    responseData = {Error: 'ExportName missing'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
-
-  let roleArn = 'arn:aws:iam::' + accountId + ':role/CrossAccountReadOnlyRole';
-
-  const AWS = require('aws-sdk');
-  AWS.config.update({region: region});
-  AWS.config.apiVersions = {
-    sts: '2011-06-15',
-    cloudformation: '2010-05-15'
-  };
-
+const assumeRole = async (roleArn, roleSessionName) => {
   const sts = new AWS.STS();
+
+  const params = {
+    RoleArn: roleArn,
+    RoleSessionName: roleSessionName
+  };
+  const data = await sts.assumeRole(params).promise();
+  //console.info(`- AssumeRole Data:\n${JSON.stringify(data, null, 2)}`);
+
+  return data.Credentials;
+};
+
+const getExport = async (exportName, credentials) => {
+  const cloudformation = (credentials) ? new AWS.CloudFormation({accessKeyId: credentials.AccessKeyId,
+                                                                 secretAccessKey: credentials.SecretAccessKey,
+                                                                 sessionToken: credentials.SessionToken})
+                                       : new AWS.CloudFormation();
+
+  let nextToken;
+  do {
+    const params = (nextToken) ? {NextToken: nextToken} : {};
+    const data = await cloudformation.listExports(params).promise();
+    //console.info(`- ListExports Data:\n${JSON.stringify(data, null, 2)}`);
+
+    const e = data.Exports.find(e => e.Name === exportName);
+    if (e) {
+      return e.Value;
+    }
+    else {
+      if (data.NextToken) {
+        nextToken = data.NextToken;
+      }
+      else {
+        throw new Error(`Could not find ${exportName} Export`);
+      }
+    }
+  } while (nextToken);
+};
+
+const maxValueLength = 80; // Truncate export values to this length when displayed in CloudWatch Logs
+
+exports.handler = async (event, context) => {
+  console.info(`Request Body:\n${JSON.stringify(event)}`);
 
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
-      console.info('Calling: AssumeRole...');
-      params = {
-        RoleArn: roleArn,
-        RoleSessionName: 'AccountInformationSession'
-      };
-      sts.assumeRole(params, function(err, data) {
-        if (err) {
-          responseData = {Error: 'AssumeRole call failed'};
-          console.error('Error: ' + responseData.Error + ':\n', err);
-          sendResponse(event, context, 'FAILED', responseData);
-        }
-        else {
-          console.info('Role: ' + roleArn + ' assumed');
-          let cloudformation = new AWS.CloudFormation({accessKeyId: data.Credentials.AccessKeyId,
-                                                       secretAccessKey: data.Credentials.SecretAccessKey,
-                                                       sessionToken: data.Credentials.SessionToken});
+      try {
+        const region = event.ResourceProperties.Region || process.env.AWS_REGION;
+        if (region != process.env.AWS_REGION) AWS.config.update({region: region});
 
-          getExport(event, context, cloudformation, exportName, {});
+        const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
+
+        const exportName = event.ResourceProperties.ExportName;
+        if (! exportName) {
+          throw new Error(`ExportName missing`);
         }
-      });
+
+        const roleName = 'CrossAccountReadOnlyRole';
+        const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
+        const roleSessionName = 'AccountInformationSession';
+
+        console.info(`Calling: assumeRole...`);
+        const credentials = await assumeRole(roleArn, roleSessionName);
+        console.info(`Role: ${roleArn} assumed`);
+
+        console.info(`Calling: getExport...`);
+        const exportValue = await getExport(exportName, credentials);
+        const exportDisplayValue = (exportValue.length <= maxValueLength) ? exportValue : exportValue.toString().slice(0, maxValueLength - 3) + '...';
+        console.info(`Export: ${exportName} (${exportDisplayValue})`);
+
+        await response.send(event, context, response.SUCCESS, {}, exportValue);
+      }
+      catch (err) {
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
+        await response.send(event, context, response.FAILED, responseData);
+      }
       break;
 
     case 'Delete':
-      sendResponse(event, context, 'SUCCESS');
-      break;
-
-    default:
-      responseData = {Error: 'Unknown operation: ' + event.RequestType};
-      console.error('Error: ' + responseData.Error);
-      sendResponse(event, context, 'FAILED', responseData);
+      await response.send(event, context, response.SUCCESS);
   }
 };
-
-function getExport(event, context, cloudformation, exportName, params) {
-  console.info('Calling: ListExports...');
-  cloudformation.listExports(params, function(err, data) {
-    if (err) {
-      responseData = {Error: 'ListExports call failed'};
-      console.error('Error: ' + responseData.Error + ':\n', err);
-      sendResponse(event, context, 'FAILED', responseData);
-    }
-    else {
-      console.info('Finding: Export...');
-      let e = data.Exports.find(e => e.Name === exportName)
-      if (e) {
-        responseData.Name = e.Name;
-        console.info('Export: ' + e.Name + ' = ' + e.Value);
-        sendResponse(event, context, 'SUCCESS', responseData, e.Value);
-      }
-      else {
-        if (data.NextToken) {
-          params.NextToken = data.NextToken;
-          getExport(event, context, cloudformation, exportName, params);
-        }
-        else {
-          responseData = {Error: 'Could not find ' + exportName + ' Export'};
-          console.error('Error: ' + responseData.Error);
-          sendResponse(event, context, 'FAILED', responseData);
-        }
-      }
-    }
-  });
-}
-
-function sendResponse(event, context, responseStatus, responseData, physicalResourceId, noEcho) {
-  let responseBody = JSON.stringify({
-    Status: responseStatus,
-    Reason: 'See the details in CloudWatch Log Stream: ' + context.logStreamName,
-    PhysicalResourceId: physicalResourceId || context.logStreamName,
-    StackId: event.StackId,
-    RequestId: event.RequestId,
-    LogicalResourceId: event.LogicalResourceId,
-    NoEcho: noEcho || false,
-    Data: responseData
-  });
-
-  console.info('Response body:\n', responseBody);
-
-  const https = require('https');
-  const url = require('url');
-
-  let parsedUrl = url.parse(event.ResponseURL);
-  let options = {
-    hostname: parsedUrl.hostname,
-    port: 443,
-    path: parsedUrl.path,
-    method: 'PUT',
-    headers: {
-      'content-type': '',
-      'content-length': responseBody.length
-    }
-  };
-
-  let request = https.request(options, function(response) {
-    console.info('Status code: ' + response.statusCode);
-    console.info('Status message: ' + response.statusMessage);
-    context.done();
-  });
-
-  request.on('error', function(error) {
-    console.info('send(..) failed executing https.request(..): ' + error);
-    context.done();
-  });
-
-  request.write(responseBody);
-  request.end();
-}

@@ -83,16 +83,18 @@ const changeRecordSets = async (hostedZoneId, changes, interval = 10000, checks 
     }
   };
   const data = await route53.changeResourceRecordSets(params).promise();
+  //console.info(`- ChangeResourceRecordSets Data:\n${JSON.stringify(data, null, 2)}`);
 
   params = {
     Id: data.ChangeInfo.Id.replace('/change/','')
   };
-  console.info(`- Waiting for Change with ID ${params.Id} to synchronize...`);
+  console.info(`Waiting for Change with ID ${params.Id} to synchronize...`);
 
   for (let i = 0; i < checks; i++) {
     const data = await route53.getChange(params).promise();
+    //console.info(`- GetChange Data:\n${JSON.stringify(data, null, 2)}`);
 
-    console.info(`  - Status: ${data.ChangeInfo.Status}`);
+    console.info(`- Status: ${data.ChangeInfo.Status}`);
     if (data.ChangeInfo.Status == 'INSYNC') {
       return;
     }
@@ -138,7 +140,7 @@ exports.handler = async (event, context) => {
           await changeRecordSets(hostedZoneId, changes);
 
           const physicalResourceId = domainName.replace(/\.$/, '') + '[' + nameServers.map(ns => ns.replace(/\.$/, '')).toString() + ']';
-          console.info('HostedZoneDelegation: ' + physicalResourceId);
+          console.info('HostedZone Delegation: ' + physicalResourceId);
           await response.send(event, context, response.SUCCESS, {}, physicalResourceId);
         }
         else {

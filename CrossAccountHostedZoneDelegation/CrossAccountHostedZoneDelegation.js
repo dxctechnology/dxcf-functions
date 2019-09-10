@@ -6,7 +6,6 @@
 const response = require('cfn-response-promise');
 
 const AWS = require('aws-sdk');
-//AWS.config.update({region: process.env.AWS_REGION});
 AWS.config.apiVersions = {
   sts: '2011-06-15',
   lambda: '2015-03-31'
@@ -35,11 +34,12 @@ const invokeCustomResourceFunction = async (credentials, functionName, event) =>
     Payload: JSON.stringify(event)
   };
   const data = await lambda.invoke(params).promise();
+  //console.info(`- Invoke Data:\n${JSON.stringify(data, null, 2)}`);
 
   return data.Payload;
 };
 
-exports.handler =  async (event, context) => {
+exports.handler = async (event, context) => {
   console.info(`Request Body:\n${JSON.stringify(event)}`);
 
   switch (event.RequestType) {
@@ -47,6 +47,9 @@ exports.handler =  async (event, context) => {
     case 'Update':
     case 'Delete':
       try {
+        const region = event.ResourceProperties.Region || process.env.AWS_REGION;
+        if (region != process.env.AWS_REGION) AWS.config.update({region: region});
+
         const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
 
         let domainName = event.ResourceProperties.DomainName;
@@ -75,7 +78,7 @@ exports.handler =  async (event, context) => {
         console.info(`Invoke succeeeded`);
 
         const parsedPayload = JSON.parse(payload);
-        console.info(`Payload: [${parsedPayload}]`);
+        console.info(`Payload: ${JSON.stringify(parsedPayload)}`);
 
         const responseBody = JSON.parse(parsedPayload);
 

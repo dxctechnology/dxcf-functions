@@ -18,7 +18,7 @@ const assumeRole = async (roleArn, roleSessionName) => {
     RoleSessionName: roleSessionName
   };
   const data = await sts.assumeRole(params).promise();
-  console.info(`- AssumeRole Data:\n${JSON.stringify(data, null, 2)}`);
+  //console.info(`- AssumeRole Data:\n${JSON.stringify(data, null, 2)}`);
 
   return data.Credentials;
 };
@@ -33,7 +33,7 @@ const getVpcByNameTag = async (vpcNameTagValue, credentials) => {
     Filters: [{Name: 'tag:Name', Values: [ vpcNameTagValue ]}]
   };
   const data = await ec2.describeVpcs(params).promise();
-  console.info(`- DescribeVpcs Data:\n${JSON.stringify(data, null, 2)}`);
+  //console.info(`- DescribeVpcs Data:\n${JSON.stringify(data, null, 2)}`);
 
   switch (data.Vpcs.length) {
     case 0:
