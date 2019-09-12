@@ -73,7 +73,7 @@ exports.handler = async (event, context) => {
         const credentials = await assumeRole(roleArn, roleSessionName);
         console.info(`Role: ${roleArn} assumed`);
 
-        console.info(`Calling: describeSecurityGroups...`);
+        console.info(`Calling: getSecurityGroupByName...`);
         const group = await getSecurityGroupByName(groupName, vpcId, credentials);
         console.info(`Group: ${group.GroupName} (${group.GroupId})`);
 
