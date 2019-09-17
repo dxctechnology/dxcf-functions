@@ -1,5 +1,5 @@
 /**
-* CrossAccountSecurityGroup: A Lambda function that returns information about a single Security Group which may be in another Account and/or Region.
+* SecurityGroupReference: A Lambda function that returns information about an EC2 Security Group in another Region and/or Account.
 **/
 
 const response = require('cfn-response-promise');
@@ -54,9 +54,10 @@ exports.handler = async (event, context) => {
     case 'Update':
       try {
         const region = event.ResourceProperties.Region || process.env.AWS_REGION;
-        if (region != process.env.AWS_REGION) AWS.config.update({region: region});
+        AWS.config.update({region: region});
 
-        const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
+        const currentAccountId = context.invokedFunctionArn.split(':')[4];
+        const accountId = event.ResourceProperties.AccountId || currentAccountId;
 
         const vpcId = event.ResourceProperties.VpcId || '*';
 
@@ -65,13 +66,16 @@ exports.handler = async (event, context) => {
           throw new Error(`GroupName missing`);
         }
 
-        const roleName = 'CrossAccountReadOnlyRole';
-        const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
-        const roleSessionName = 'AccountInformationSession';
+        let credentials;
+        if (accountId != currentAccountId) {
+          const roleName = 'ReferenceRole';
+          const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
+          const roleSessionName = 'AccountInformationSession';
 
-        console.info(`Calling: assumeRole...`);
-        const credentials = await assumeRole(roleArn, roleSessionName);
-        console.info(`Role: ${roleArn} assumed`);
+          console.info(`Calling: assumeRole...`);
+          credentials = await assumeRole(roleArn, roleSessionName);
+          console.info(`Role: ${roleArn} assumed`);
+        }
 
         console.info(`Calling: getSecurityGroupByName...`);
         const group = await getSecurityGroupByName(groupName, vpcId, credentials);

@@ -1,6 +1,6 @@
 /**
-* CrossAccountDomainNameServers: A Lambda proxy function that calls another Lambda management function to update NameServers in a Route53 Domain in another
-* Account.
+* DomainNameServersProxy: A Lambda proxy function that calls another Lambda management function to update NameServers
+* in a Route53 Domain in another Account.
 **/
 
 const response = require('cfn-response-promise');
@@ -47,7 +47,7 @@ exports.handler = async (event, context) => {
     case 'Update':
       try {
         const region = event.ResourceProperties.Region || process.env.AWS_REGION;
-        if (region != process.env.AWS_REGION) AWS.config.update({region: region});
+        AWS.config.update({region: region});
 
         const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
 
@@ -63,7 +63,7 @@ exports.handler = async (event, context) => {
         }
         nameServers = nameServers.map(ns => ns.endsWith('.') ? ns : ns + '.');
 
-        const roleName = 'CrossAccountDomainNameServersRole';
+        const roleName = 'DomainNameServersProxyRole';
         const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
         const roleSessionName = 'DomainNameServersSession';
         const functionName = 'DomainNameServers';

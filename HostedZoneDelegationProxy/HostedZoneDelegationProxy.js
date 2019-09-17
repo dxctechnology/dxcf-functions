@@ -1,5 +1,5 @@
 /**
-* CrossAccountHostedZoneDelegation: A Lambda proxy function that calls another Lambda management function to create Sub-Domain delegation records in a Route53
+* HostedZoneDelegationProxy: A Lambda proxy function that calls another Lambda management function to create Sub-Domain delegation records in a Route53
 * HostedZone in another Account.
 **/
 
@@ -48,7 +48,7 @@ exports.handler = async (event, context) => {
     case 'Delete':
       try {
         const region = event.ResourceProperties.Region || process.env.AWS_REGION;
-        if (region != process.env.AWS_REGION) AWS.config.update({region: region});
+        AWS.config.update({region: region});
 
         const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
 
@@ -64,7 +64,7 @@ exports.handler = async (event, context) => {
         }
         nameServers = nameServers.map(ns => ns.endsWith('.') ? ns : ns + '.');
 
-        const roleName = 'CrossAccountHostedZoneDelegationRole';
+        const roleName = 'HostedZoneDelegationProxyRole';
         const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
         const roleSessionName = 'HostedZoneDelegationSession';
         const functionName = 'HostedZoneDelegation';

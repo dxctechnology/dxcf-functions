@@ -2,14 +2,14 @@
 * DomainNameServers: A Lambda function that Updates NameServers for a Route53 Domain
 *
 * This function is meant to be called direct from a same-account CustomResource,
-* or indirect via the CrossAccountDomainNameServers proxy Lambda from a
-* different account CustomResource.
+* or indirect via the DomainNameServersProxy Lambda Function from a different account
+* CustomResource.
 **/
 
 const response = require('cfn-response-promise');
 
 const AWS = require('aws-sdk');
-AWS.config.update({region: 'us-east-1'}); // Global service only available in us-east-1
+AWS.config.update({region: 'us-east-1'}); // Global
 AWS.config.apiVersions = {
   route53domains: '2014-05-15'
 };

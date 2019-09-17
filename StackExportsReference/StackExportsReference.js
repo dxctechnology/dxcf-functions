@@ -55,22 +55,26 @@ exports.handler = async (event, context) => {
     case 'Update':
       try {
         const region = event.ResourceProperties.Region || process.env.AWS_REGION;
-        if (region != process.env.AWS_REGION) AWS.config.update({region: region});
+        AWS.config.update({region: region});
 
-        const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
+        const currentAccountId = context.invokedFunctionArn.split(':')[4];
+        const accountId = event.ResourceProperties.AccountId || currentAccountId;
 
         const stackName = event.ResourceProperties.StackName;
         if (! stackName) {
           throw new Error(`StackName missing`);
         }
 
-        const roleName = 'CrossAccountReadOnlyRole';
-        const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
-        const roleSessionName = 'AccountInformationSession';
+        let credentials;
+        if (accountId != currentAccountId) {
+          const roleName = 'ReferenceRole';
+          const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
+          const roleSessionName = 'AccountInformationSession';
 
-        console.info(`Calling: assumeRole...`);
-        const credentials = await assumeRole(roleArn, roleSessionName);
-        console.info(`Role: ${roleArn} assumed`);
+          console.info(`Calling: assumeRole...`);
+          credentials = await assumeRole(roleArn, roleSessionName);
+          console.info(`Role: ${roleArn} assumed`);
+        }
 
         console.info(`Calling: getStackExports...`);
         const exports = await getStackExports(stackName, credentials);

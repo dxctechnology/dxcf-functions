@@ -1,5 +1,5 @@
 /**
-* CrossAccountVpc: A Lambda function that returns information about a single VPC which may be in another Account and/or Region.
+* CrossAccountVpc: A Lambda function that returns information about an EC2 VPC in another Region and/or Account.
 **/
 
 const response = require('cfn-response-promise');
@@ -53,22 +53,26 @@ exports.handler = async (event, context) => {
     case 'Update':
       try {
         const region = event.ResourceProperties.Region || process.env.AWS_REGION;
-        if (region != process.env.AWS_REGION) AWS.config.update({region: region});
+        AWS.config.update({region: region});
 
-        const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
+        const currentAccountId = context.invokedFunctionArn.split(':')[4];
+        const accountId = event.ResourceProperties.AccountId || currentAccountId;
 
         const vpcName = event.ResourceProperties.VpcName;
         if (! vpcName) {
           throw new Error(`VpcName missing`);
         }
 
-        const roleName = 'CrossAccountReadOnlyRole';
-        const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
-        const roleSessionName = 'AccountInformationSession';
+        let credentials;
+        if (accountId != currentAccountId) {
+          const roleName = 'ReferenceRole';
+          const roleArn = `arn:aws:iam::${accountId}:role/${roleName}`;
+          const roleSessionName = 'AccountInformationSession';
 
-        console.info(`Calling: assumeRole...`);
-        const credentials = await assumeRole(roleArn, roleSessionName);
-        console.info(`Role: ${roleArn} assumed`);
+          console.info(`Calling: assumeRole...`);
+          credentials = await assumeRole(roleArn, roleSessionName);
+          console.info(`Role: ${roleArn} assumed`);
+        }
 
         console.info(`Calling: getVpcByNameTag...`);
         const vpc = await getVpcByNameTag(vpcName, credentials);
