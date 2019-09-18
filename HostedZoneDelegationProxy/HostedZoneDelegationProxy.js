@@ -6,6 +6,7 @@
 const response = require('cfn-response-promise');
 
 const AWS = require('aws-sdk');
+AWS.config.update({region: 'us-east-1'}); // Global
 AWS.config.apiVersions = {
   sts: '2011-06-15',
   lambda: '2015-03-31'
@@ -47,9 +48,6 @@ exports.handler = async (event, context) => {
     case 'Update':
     case 'Delete':
       try {
-        const region = event.ResourceProperties.Region || process.env.AWS_REGION;
-        AWS.config.update({region: region});
-
         const accountId = event.ResourceProperties.AccountId || context.invokedFunctionArn.split(':')[4];
 
         let domainName = event.ResourceProperties.DomainName;

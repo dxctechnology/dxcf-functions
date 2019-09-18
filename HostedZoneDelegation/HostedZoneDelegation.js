@@ -1,13 +1,11 @@
 /**
-* HostedZoneDelegation: A Lambda function that manages a sub-domain delegation
-* for a HostedZone.
+* HostedZoneDelegation: A Lambda function that manages a sub-domain delegation for a HostedZone.
 *
-* This function is meant to be called direct from a same-account CustomResource,
-* or indirect via the HostedZoneDelegationProxy Lambda Function from a different
-* account CustomResource.
+* This function is meant to be called direct from a CustomResource in the same Account,
+* or indirect from the HostedZoneDelegationProxy CustomResource Lambda Function in a different Account.
 **/
 
-const response = require('cfn-response-promise');
+const response = require('cfn-lambda-response-promise');
 
 const AWS = require('aws-sdk');
 AWS.config.update({region: 'us-east-1'}); // Global
