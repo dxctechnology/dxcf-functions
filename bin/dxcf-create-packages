@@ -1,0 +1,25 @@
+#!/bin/bash
+#
+# DXC Framework Create Packages
+#
+# The plan is to move this function inside of the DXCF-CLI eventually. So, this script will serve
+# as documentation for the process until that's done. All functions are currently packaged and then
+# uploaded to S3 during the creation of a stack containing Lambda Resources which use the S3Bucket
+# Code method, so this isn't actually needed for functions, but again documents the process. This
+# is needed to create the BaselineLayer.zip, then convert to Base64, so that can be included inthe
+# Baseline-Baseline.yaml Template as the BaselineLayer Lambda LayerVersion.
+
+bindir=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
+rootdir=${bindir%/*}
+
+echo "Scanning for directories within: $rootdir"
+
+cd $rootdir
+for directory in $(ls -1d */ | sed -E -e '/^[a-z]{1,4}\/$/d;s/\/$//'); do
+  echo "- $directory"
+  rm -f $directory.zip
+  (cd $directory; zip -X -r ../$directory.zip ./*)
+done
+
+# Create Base64 encoding of the BaselineLayer.zip
+openssl base64 -in BaselineLayer.zip -out BaselineLayer.zip.base64

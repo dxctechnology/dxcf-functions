@@ -3,130 +3,92 @@
 * Log Subscription for a directory service.
 **/
 
-exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+const response = require('cfn-response-promise');
 
-  let responseData = {};
-  let params = {};
+const AWS = require('aws-sdk');
+AWS.config.apiVersions = {
+  directoryservice: '2015-04-16'
+};
 
-  let dId = event.ResourceProperties.DirectoryId;
-  if (! /^d-[0-9a-f]{10}$/.test(dId)) {
-    responseData = {Error: 'DirectoryId invalid: must be a valid Directory Id of the form d-9999999999, or "d-" followed by 10 hex digits'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
+const ds = new AWS.DirectoryService();
 
-  let lgName = event.ResourceProperties.LogGroup;
-  if (! /^[-/0-9a-zA-Z]{5,64}$/.test(lgName) && event.RequestType != 'Delete') {
-    responseData = {Error: 'LogGroup invalid: must be a valid LogGroup Name, consisting of aphanumeric characters, slashes and dashes'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
-
-  console.log('DirectoryId: ' + dId);
-  console.log('LogGroup: ' + lgName);
-
-  const AWS = require('aws-sdk');
-  AWS.config.apiVersions = {
-    directoryservice: '2015-04-16'
+const createLogSubscription = async (directoryId, logGroupName) => {
+  const params = {
+    DirectoryId: directoryId,
+    LogGroupName: logGroupName
   };
+  const data = await ds.createLogSubscription(params).promise();
+  //console.info(`- CreateLogSubscription Data:\n${JSON.stringify(data, null, 2)}`);
 
-  const ds = new AWS.DirectoryService();
+  return;
+};
+
+const deleteLogSubscription = async (directoryId) => {
+  const params = {
+    DirectoryId: directoryId
+  };
+  const data = await ds.deleteLogSubscription(params).promise();
+  //console.info(`- DeleteLogSubscription Data:\n${JSON.stringify(data, null, 2)}`);
+
+  return;
+};
+
+exports.handler = async (event, context) => {
+  console.info(`Request Body:\n${JSON.stringify(event)}`);
 
   switch (event.RequestType) {
     case 'Create':
-      console.log('Calling: CreateLogSubscription...');
-      params = {
-        DirectoryId: dId,
-        LogGroupName: lgName
-      };
-      ds.createLogSubscription(params, function(err, data) {
-        if (err) {
-          responseData = {Error: 'CreateLogSubscription call failed'};
-          console.error('Error: ' + responseData.Error + ':\n', err);
-          sendResponse(event, context, 'FAILED', responseData);
+      try {
+        const directoryId = event.ResourceProperties.DirectoryId;
+        if (! /^d-[0-9a-f]{10}$/.test(directoryId)) {
+          throw new Error(`DirectoryId invalid: must be a valid Directory Id of the form d-9999999999, or "d-" followed by 10 hex digits`);
         }
-        else {
-          responseData = data;
-          console.log('LogSubscription: ' + lgName + ' created');
-          sendResponse(event, context, 'SUCCESS', responseData, lgName);
+
+        const logGroupName = event.ResourceProperties.LogGroup;
+        if (! /^[-/0-9a-zA-Z]{5,64}$/.test(logGroupName)) {
+          throw new Error(`LogGroup invalid: must be a valid LogGroup Name, consisting of aphanumeric characters, slashes and dashes`);
         }
-      });
+
+        console.info(`DirectoryId: ${dId}`);
+        console.info(`LogGroup: ${lgName}`);
+
+        console.info('Calling: createLogSubscription...');
+        await createLogSubscription(directoryId, logGroupName);
+
+        console.info(`LogSubscription: ${logGroupName} created`);
+        await response.send(event, context, response.SUCCESS, {}, logGroupName);
+      }
+      catch (err) {
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
+        await response.send(event, context, response.FAILED, responseData);
+      }
       break;
 
     case 'Update':
-      console.log('Note: Update attempted, but a Directory Log Subscription does not support an update operation, so no actions will be taken');
-      sendResponse(event, context, 'SUCCESS', dAlias);
+      console.info(`Update attempted, but a Directory Log Subscription does not support an update operation, so no actions will be taken`);
+      await response.send(event, context, response.SUCCESS);
       break;
 
     case 'Delete':
-      console.log('Calling: DeleteLogSubscription...');
-      params = {
-        DirectoryId: dId
-      };
-      ds.deleteLogSubscription(params, function(err, data) {
-        if (err) {
-          responseData = {Error: 'DeleteLogSubscription call failed'};
-          console.error('Error: ' + responseData.Error + ':\n', err);
-          sendResponse(event, context, 'FAILED', responseData);
+      try {
+        const directoryId = event.ResourceProperties.DirectoryId;
+        if (! /^d-[0-9a-f]{10}$/.test(directoryId)) {
+          throw new Error(`DirectoryId invalid: must be a valid Directory Id of the form d-9999999999, or "d-" followed by 10 hex digits`);
         }
-        else {
-          responseData = data;
-          console.log('LogSubscription: deleted');
-          sendResponse(event, context, 'SUCCESS', responseData);
-        }
-      });
-      break;
 
-    default:
-      responseData = {Error: 'Unknown operation: ' + event.RequestType};
-      console.error('Error: ' + responseData.Error);
-      sendResponse(event, context, 'FAILED', responseData);
+        console.info(`DirectoryId: ${dId}`);
+
+        console.info(`Calling: deleteLogSubscription...`);
+        await deleteLogSubscription(directoryId);
+
+        console.info(`LogSubscription: deleted`);
+        await response.send(event, context, response.SUCCESS);
+      }
+      catch (err) {
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
+        await response.send(event, context, response.FAILED, responseData);
+      }
   }
 };
-
-function sendResponse(event, context, responseStatus, responseData, physicalResourceId, noEcho) {
-  let responseBody = JSON.stringify({
-    Status: responseStatus,
-    Reason: 'See the details in CloudWatch Log Stream: ' + context.logStreamName,
-    PhysicalResourceId: physicalResourceId || context.logStreamName,
-    StackId: event.StackId,
-    RequestId: event.RequestId,
-    LogicalResourceId: event.LogicalResourceId,
-    NoEcho: noEcho || false,
-    Data: responseData
-  });
-
-  console.log('Response body:\n', responseBody);
-
-  const https = require('https');
-  const url = require('url');
-
-  let parsedUrl = url.parse(event.ResponseURL);
-  let options = {
-    hostname: parsedUrl.hostname,
-    port: 443,
-    path: parsedUrl.path,
-    method: 'PUT',
-    headers: {
-      'content-type': '',
-      'content-length': responseBody.length
-    }
-  };
-
-  let request = https.request(options, function(response) {
-    console.log('Status code: ' + response.statusCode);
-    console.log('Status message: ' + response.statusMessage);
-    context.done();
-  });
-
-  request.on('error', function(error) {
-    console.log('send(..) failed executing https.request(..): ' + error);
-    context.done();
-  });
-
-  request.write(responseBody);
-  request.end();
-}

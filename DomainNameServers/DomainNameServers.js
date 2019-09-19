@@ -1,134 +1,67 @@
 /**
-* DomainNameServers: A Lambda function that Updates NameServers for a Route53 Domain
+* DomainNameServers: A Lambda function that updates NameServers for a Route53 Domain
 *
-* This function is meant to be called direct from a same-account CustomResource,
-* or indirect via the CrossAccountDomainNameServers proxy Lambda from a
-* different account CustomResource.
+* This function is meant to be called direct from a CustomResource in the same Account,
+* or indirect from the DomainNameServersProxy CustomResource Lambda Function in a different Account.
 **/
 
-exports.handler = function(event, context) {
-  console.log('Request body:\n' + JSON.stringify(event));
+const response = require('cfn-lambda-response-promise');
 
-  let responseData = {};
-  let params = {};
+const AWS = require('aws-sdk');
+AWS.config.update({region: 'us-east-1'}); // Global
+AWS.config.apiVersions = {
+  route53domains: '2014-05-15'
+};
 
-  let domainName = event.ResourceProperties.DomainName;
-  if (! domainName) {
-    responseData = {Error: 'DomainName missing!'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
+const route53domains = new AWS.Route53Domains();
 
-  let nameServers = event.ResourceProperties.NameServers;
-  if (! nameServers) {
-    responseData = {Error: 'NameServers missing'};
-    console.error('Error: ' + responseData.Error);
-    sendResponse(event, context, 'FAILED', responseData);
-    return;
-  }
-
-  console.log('DomainName: ' + domainName);
-  console.log('NameServers: ' + nameServers);
-
-  const AWS = require('aws-sdk');
-  AWS.config.update({region: 'us-east-1'}); // Global service only available in us-east-1
-  AWS.config.apiVersions = {
-    route53domains: '2014-05-15'
+const updateDomainNameservers = async (domainName, nameServers) => {
+  const params = {
+    DomainName: domainName,
+    Nameservers: [{ Name: nameServers[0] },
+                  { Name: nameServers[1] },
+                  { Name: nameServers[2] },
+                  { Name: nameServers[3] }]
   };
+  await route53domains.updateDomainNameservers(params).promise();
+};
 
-  const route53domains = new AWS.Route53Domains();
+exports.handler = async (event, context) => {
+  console.info(`Request Body:\n${JSON.stringify(event)}`);
 
   switch (event.RequestType) {
     case 'Create':
     case 'Update':
-      console.log('Calling: UpdateDomainNameservers...');
-      params = {
-        DomainName: domainName,
-        Nameservers: [{ Name: nameServers[0] },
-                      { Name: nameServers[1] },
-                      { Name: nameServers[2] },
-                      { Name: nameServers[3] }]
-      };
-      route53domains.updateDomainNameservers(params, function(err, data) {
-        if (err) {
-          responseData = {Error: 'UpdateDomainNameservers call failed'};
-          console.error('Error: ' + responseData.Error + ':\n', err);
-          sendResponse(event, context, 'FAILED', responseData);
+      try {
+        const domainName = event.ResourceProperties.DomainName;
+        if (! domainName) {
+          throw new Error(`DomainName missing!`);
         }
-        else {
-          let physicalResourceId = domainName + '[' + nameServers.toString() + ']';
-          console.log('Domain NameServers: ' + physicalResourceId);
-          sendResponse(event, context, 'SUCCESS', responseData, physicalResourceId);
+
+        const nameServers = event.ResourceProperties.NameServers;
+        if (! nameServers) {
+          throw new Error(`NameServers missing`);
         }
-      });
+
+        console.info(`DomainName: ${domainName}`);
+        console.info(`NameServers: ${nameServers}`);
+
+        console.info(`Calling: updateDomainNameservers...`);
+        await updateDomainNameservers(domainName, nameServers);
+
+        const physicalResourceId = `${domainName}[${nameServers.toString()}]`;
+        console.info(`Domain NameServers: ${physicalResourceId}`);
+        await response.send(event, context, response.SUCCESS, {}, physicalResourceId);
+      }
+      catch (err) {
+        const responseData = {Error: `${(err.code) ? err.code : 'Error'}: ${err.message}`};
+        console.error(responseData.Error);
+        await response.send(event, context, response.FAILED, responseData);
+      }
       break;
 
     case 'Delete':
-      console.log('Note: Delete attempted, but Domain NameServers can not be removed, only updated, so no actions will be taken');
-      sendResponse(event, context, 'SUCCESS');
-      break;
-
-    default:
-      responseData = {Error: 'Unknown operation: ' + event.RequestType};
-      console.error('Error: ' + responseData.Error);
-      sendResponse(event, context, 'FAILED', responseData);
+      console.info(`Delete attempted, but Domain NameServers can not be removed, only updated, so no actions will be taken`);
+      await response.send(event, context, response.SUCCESS);
   }
 };
-
-function sendResponse(event, context, responseStatus, responseData, physicalResourceId, noEcho) {
-  let responseBody = JSON.stringify({
-    Status: responseStatus,
-    Reason: 'See the details in CloudWatch Log Stream: ' + context.logStreamName,
-    PhysicalResourceId: physicalResourceId || context.logStreamName,
-    StackId: event.StackId,
-    RequestId: event.RequestId,
-    LogicalResourceId: event.LogicalResourceId,
-    NoEcho: noEcho || false,
-    Data: responseData
-  });
-
-  console.log('Response body:\n', responseBody);
-
-  let srcAccountId = event.ServiceToken.split(':')[4];
-  let dstAccountId = event.ResourceProperties.AccountId;
-
-  // This function can be called direct by CloudFormation within the same Account,
-  // Or via a Lambda proxy function in another Account, for Multi-Account integration
-  if (! dstAccountId || dstAccountId == srcAccountId) {
-    console.log('Invoked by current Account: Responding to CloudFormation');
-
-    const https = require('https');
-    const url = require('url');
-
-    let parsedUrl = url.parse(event.ResponseURL);
-    let options = {
-      hostname: parsedUrl.hostname,
-      port: 443,
-      path: parsedUrl.path,
-      method: 'PUT',
-      headers: {
-        'content-type': '',
-        'content-length': responseBody.length
-      }
-    };
-
-    let request = https.request(options, function(response) {
-      console.log('Status code: ' + response.statusCode);
-      console.log('Status message: ' + response.statusMessage);
-      context.done();
-    });
-
-    request.on('error', function(error) {
-      console.log('send(..) failed executing https.request(..): ' + error);
-      context.done();
-    });
-
-    request.write(responseBody);
-    request.end();
-  }
-  else {
-    console.log('Invoked by Account ' + srcAccountId + ': Responding to Lambda');
-    context.succeed(responseBody);
-  }
-}
