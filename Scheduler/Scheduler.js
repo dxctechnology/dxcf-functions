@@ -91,7 +91,18 @@ const currentTimeInTimeZone = (timeZone) => {
   return new Date().toLocaleTimeString("en-US", {hour12: false, timeZoneName:'long', timeZone: timeZone});
 };
 
-const getScheduleTagRegExp = () => {
+let getScheduleTagValidateRegExp = () => {
+  // I hope you understand Regular Expressions! The Capture RegExp below was letting through some invalid patterns, and
+  // I could not figure out a way to handle the 3 variants of 00:00-, -00:00 or 00:00-00:00 with an optional Time Zone
+  // AND also do the caputure into consistent groups, so I decided to split up the logic into first validating the
+  // entire time range was correct first via this RegExp, then using the second RegExp to break up a known valid Tag.
+  const timeValidatePattern = '([01][0-9]|2[0-3]):[0-5][0-9]';
+  const optionalTimeZoneValidatePattern = '( ([A-Z][_A-Za-z0-9]*\/[A-Z][_+A-Za-z0-9]*))?';
+
+  return new RegExp(`^(${timeValidatePattern}-|-${timeValidatePattern}|${timeValidatePattern}-${timeValidatePattern})${optionalTimeZoneValidatePattern}$`);
+};
+
+let getScheduleTagCaptureRegExp = () => {
   // I hope you understand Regular Expressions! These have both capturing and non-capturing groups, needed in the match()
   // statement to both validate the Schedule Tag is in the proper format, where parts are optional, and to capture the
   // start and stop times along with the timeZone when specified.
@@ -139,7 +150,8 @@ const stopInstance = async (instanceId) => {
 exports.handler = async (event, context) => {
   console.info(`Event:\n${JSON.stringify(event)}`);
 
-  const scheduleTagRegExp = getScheduleTagRegExp();
+  const scheduleTagValidateRegExp = getScheduleTagValidateRegExp();
+  const scheduleTagCaptureRegExp = getScheduleTagCaptureRegExp();
 
   const tag = process.env.TAG || 'Schedule';
   const test = parseBoolean(process.env.TEST);
@@ -161,8 +173,8 @@ exports.handler = async (event, context) => {
     console.info(`Region Time: ${regionTime}`);
 
     for (const instance of instances) {
-      const matches = instance.Schedule.match(scheduleTagRegExp);
-      if (matches) {
+      const matches = instance.Schedule.match(scheduleTagCaptureRegExp);
+      if (scheduleTagValidateRegExp.test(instance.Schedule) && matches) {
         console.info(`Instance ${instance.InstanceId} is ${instance.State}, Schedule [${instance.Schedule}] is valid`);
         const startTime = matches[1];
         const stopTime = matches[2];
