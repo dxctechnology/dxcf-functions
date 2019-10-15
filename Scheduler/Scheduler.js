@@ -5,16 +5,16 @@
  ** This function is meant to be called via CloudWatch Schedule.
  **
  ** Schedule Tag formats initially supported:
- ** - "06:30-18:30"                     = (Every Day, Start+Stop, Use Region Timezone)
- ** - "06:30-"                          = (Every Day, Start only, Use Region Timezone)
- ** -      "-18:30"                     = (Every Day, Stop only, Use Region Timezone)
- ** - "18:30-06:30"                     = (Every Day, Start+Stop, Use Region Timezone, Stop before Start)
- ** - "06:30-18:30 Americas/New_York"   = (Every Day, Start+Stop, Use Specified Timezone)
- ** - "06:30- Americas/Los_Angeles"     = (Every Day, Start only, Use Specified Timezone)
- ** -      "-18:30 Europe/Dublin"       = (Every Day, Stop only, Use Specified Timezone)
+ ** - "06:30-18:30"                     = (Every Day, Start+Stop, Use Region TimeZone)
+ ** - "06:30-"                          = (Every Day, Start only, Use Region TimeZone)
+ ** -      "-18:30"                     = (Every Day, Stop only, Use Region TimeZone)
+ ** - "18:30-06:30"                     = (Every Day, Start+Stop, Use Region TimeZone, Stop before Start)
+ ** - "06:30-18:30 Americas/New_York"   = (Every Day, Start+Stop, Use Specified TimeZone)
+ ** - "06:30- Americas/Los_Angeles"     = (Every Day, Start only, Use Specified TimeZone)
+ ** -      "-18:30 Europe/Dublin"       = (Every Day, Stop only, Use Specified TimeZone)
  **
  ** Schedule Tag formats eventually we hope to support:
- ** - "Mo-Fr 06:30-18:30 Europe/Dublin" = (Mon-Fri, Start+Stop, Use Specified Timezone)
+ ** - "Mo-Fr 06:30-18:30 Europe/Dublin" = (Mon-Fri, Start+Stop, Use Specified TimeZone)
  ** - "Mo,We,Fr 06:30-18:30"            = (Mon,Wed,Fri, Start+Stop)
  ** - "Mo-Fr 06:30-18:30; Sa-Su -18:30  = (Mon-Fri, Start+Stop; Weekends, Stop only)
  **
@@ -87,34 +87,25 @@ const getRegionTimeZone = (region) => {
   }
 };
 
-const changeTimezone = (date, timezone) => {
-  const dateOffset = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
-  const diff = date.getTime()-dateOffset.getTime();
-
-  return new Date(date.getTime() + diff);
+const currentTimeInTimeZone = (timeZone) => {
+  return new Date().toLocaleTimeString("en-US", {hour12: false, timeZoneName:'long', timeZone: timeZone});
 };
 
-const getSpecificTime = (timeString, timezone) => {
-  const timeRegExp = new RegExp(`^([01][0-9]|2[0-3]):[0-5][0-9]$`);
+let getScheduleTagValidateRegExp = () => {
+  // I hope you understand Regular Expressions! The Capture RegExp below was letting through some invalid patterns, and
+  // I could not figure out a way to handle the 3 variants of 00:00-, -00:00 or 00:00-00:00 with an optional Time Zone
+  // AND also do the caputure into consistent groups, so I decided to split up the logic into first validating the
+  // entire time range was correct first via this RegExp, then using the second RegExp to break up a known valid Tag.
+  const timeValidatePattern = '([01][0-9]|2[0-3]):[0-5][0-9]';
+  const optionalTimeZoneValidatePattern = '( ([A-Z][_A-Za-z0-9]*\/[A-Z][_+A-Za-z0-9]*))?';
 
-  if (timeRegExp.test(timeString)) {
-    const now = new Date();
-    let startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), timeString.slice(0, 2), timeString.slice(3, 5));
-    if (timezone) {
-      startTime = changeTimezone(startTime, timezone);
-    }
-
-    return startTime;
-  }
-  else {
-    throw new Error(`Time ${timeString} invalid`);
-  }
+  return new RegExp(`^(${timeValidatePattern}-|-${timeValidatePattern}|${timeValidatePattern}-${timeValidatePattern})${optionalTimeZoneValidatePattern}$`);
 };
 
-const getScheduleTagRegExp = () => {
+let getScheduleTagCaptureRegExp = () => {
   // I hope you understand Regular Expressions! These have both capturing and non-capturing groups, needed in the match()
   // statement to both validate the Schedule Tag is in the proper format, where parts are optional, and to capture the
-  // start and stop times along with the timezone when specified.
+  // start and stop times along with the timeZone when specified.
   const optionalTimeCapturePattern = '((?:(?:[01][0-9]|2[0-3]):[0-5][0-9])?)';
   const optionalTimeZoneCapturePattern = '(?: ([A-Z][_A-Za-z0-9]*\/[A-Z][_+A-Za-z0-9]*))?';
 
@@ -159,7 +150,8 @@ const stopInstance = async (instanceId) => {
 exports.handler = async (event, context) => {
   console.info(`Event:\n${JSON.stringify(event)}`);
 
-  const scheduleTagRegExp = getScheduleTagRegExp();
+  const scheduleTagValidateRegExp = getScheduleTagValidateRegExp();
+  const scheduleTagCaptureRegExp = getScheduleTagCaptureRegExp();
 
   const tag = process.env.TAG || 'Schedule';
   const test = parseBoolean(process.env.TEST);
@@ -176,56 +168,53 @@ exports.handler = async (event, context) => {
   if (instances.length > 0) {
     const region = context.invokedFunctionArn.split(':')[3];
     const regionTimeZone = getRegionTimeZone(region);
-    const now = new Date();
+    const regionTime = currentTimeInTimeZone(regionTimeZone);
 
-    console.info(`Region Time: ${new Date(now).toLocaleTimeString("en-US", {hour12: false, timeZoneName:'long', timeZone: regionTimeZone})}`);
+    console.info(`Region Time: ${regionTime}`);
 
     for (const instance of instances) {
-      const matches = instance.Schedule.match(scheduleTagRegExp);
-      if (matches) {
-        console.info(`Instance ${instance.InstanceId} is ${instance.State}, Schedule '${instance.Schedule}' is valid`);
-        const startTimeString = matches[1];
-        const stopTimeString = matches[2];
+      const matches = instance.Schedule.match(scheduleTagCaptureRegExp);
+      if (scheduleTagValidateRegExp.test(instance.Schedule) && matches) {
+        console.info(`Instance ${instance.InstanceId} is ${instance.State}, Schedule [${instance.Schedule}] is valid`);
+        const startTime = matches[1];
+        const stopTime = matches[2];
         const timeZone = (matches[3]) ? matches[3] : regionTimeZone;
 
-        const startTime = (startTimeString) ? getSpecificTime(startTimeString, timeZone) : undefined;
-        const stopTime = (stopTimeString) ? getSpecificTime(stopTimeString, timeZone) : undefined;
+        const currentFullTime = currentTimeInTimeZone(timeZone);
+        const currentTime = currentFullTime.slice(0,5);
+        const currentTimeZoneName = currentFullTime.slice(9);
 
-        console.info(`- Current time: ${new Date(now).toLocaleString("en-US", {hour12: false, timeZoneName:'long', timeZone: timeZone})}`);
-        if (startTime) {
-          console.info(`- Start   time: ${new Date(startTime).toLocaleString("en-US", {hour12: false, timeZoneName:'long', timeZone: timeZone})}`);
-        }
-        if (stopTime) {
-          console.info(`- Stop    time: ${new Date(stopTime).toLocaleString("en-US", {hour12: false, timeZoneName:'long', timeZone: timeZone})}`);
-        }
+        console.info(`- Current: ${currentTime}` + ((startTime) ? `, Start: ${startTime}` : '')
+                                                 + ((stopTime) ? `, Stop: ${stopTime}` : '')
+                                                 + ` (${currentTimeZoneName})`);
 
         if (startTime && instance.State != 'running' &&
-           ((!stopTime && now > startTime)                                                 || // Schedule: "06:30-"
-             (stopTime && startTime < stopTime && (now > startTime && now < stopTime))     || // Schedule: "06:30-18:30"
-             (stopTime && startTime > stopTime && (now > startTime || now < stopTime)))) {    // Schedule: "18:30-06:30"
-          console.info(`- Current state ${instance.State}, should be started...`);
+           ((!stopTime && currentTime >= startTime)                                                         || // Schedule: "06:30-"
+             (stopTime && startTime < stopTime && (currentTime >= startTime && currentTime < stopTime))     || // Schedule: "06:30-18:30"
+             (stopTime && startTime > stopTime && (currentTime >= startTime || currentTime < stopTime)))) {    // Schedule: "18:30-06:30"
+          console.info(`--- Currently ${instance.State}, should be started...`);
           if (!test) {
-            console.info(`- Starting Instance...`);
+            console.info(`--- Starting Instance...`);
             const state = await startInstance(instance.InstanceId);
-            console.info(`- Instance start requested, new state is ${state}`);
+            console.info(`--- Start requested, now ${state}`);
           }
           else {
-            console.info(`NOT Starting Instance due to test mode`);
+            console.info(`--- NOT Starting Instance due to test mode`);
           }
         }
 
         if (stopTime && instance.State != 'stopped' &&
-           ((!startTime && now > stopTime)                                                  || // Schedule:      "-18:30"
-             (startTime && startTime < stopTime && (now > stopTime || now < startTime))     || // Schedule: "06:30-18:30"
-             (startTime && startTime > stopTime && (now > stopTime && now < startTime)))) {    // Schedule: "18:30-06:30"                                                            // Schedule: "18:30-06:30"
-          console.info(`- Current state ${instance.State}, should be stopped...`);
+           ((!startTime && currentTime >= stopTime)                                                          || // Schedule:      "-18:30"
+             (startTime && startTime < stopTime && (currentTime >= stopTime || currentTime < startTime))     || // Schedule: "06:30-18:30"
+             (startTime && startTime > stopTime && (currentTime >= stopTime && currentTime < startTime)))) {    // Schedule: "18:30-06:30"
+          console.info(`--- Currently ${instance.State}, should be stopped...`);
           if (!test) {
-            console.info(`- Stopping Instance...`);
+            console.info(`--- Stopping Instance...`);
             const state = await stopInstance(instance.InstanceId);
-            console.info(`Instance stop requested, new state is ${state}`);
+            console.info(`--- Stop requested, now ${state}`);
           }
           else {
-            console.info(`NOT Stopping Instance due to test mode`);
+            console.info(`--- NOT Stopping Instance due to test mode`);
           }
         }
       }

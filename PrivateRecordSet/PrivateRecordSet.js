@@ -21,7 +21,7 @@ const route53 = new AWS.Route53();
 const parseBoolean = (value) => {
   const re=/^(t(rue)?|1|on|y(es)?)$/i;
   return re.test(value);
-}
+};
 
 const validateEvent = (event, source, detailType, states) => {
   if (! event) {
@@ -361,7 +361,7 @@ const constructUpsertChange = (record, value) => {
 
 const delay = async (ms) => {
   return await new Promise(resolve => setTimeout(resolve, ms));
-}
+};
 
 const changeRecordSets = async (hostedZoneId, changes, interval = 10000, checks = 9) => {
   console.info(`- Calling: ChangeResourceRecordSets for Hosted Zone ${hostedZoneId}...`);

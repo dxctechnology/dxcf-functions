@@ -49,17 +49,17 @@ exports.handler = async (event, context) => {
           throw new Error(`DirectoryAlias invalid: must be a valid Directory Alias, starting with a lower-case letter, consisting of lower-case aphanumeric characters and dashes`);
         }
 
-        const enableSso = (/^(true|yes|1)$/i).test(event.ResourceProperties.EnableSso);
+        const enableSsoProperty = (/^(true|yes|1)$/i).test(event.ResourceProperties.EnableSso);
 
         console.info(`DirectoryId: ${directoryId}`);
         console.info(`DirectoryAlias: ${directoryAlias}`);
-        console.info(`EnableSso: ${enableSso}`);
+        console.info(`EnableSso: ${enableSsoProperty}`);
 
         console.info(`Calling: createAlias...`);
         await createAlias(directoryId, directoryAlias);
-        console.info(`Alias: ${dAlias} created`);
+        console.info(`Alias: ${directoryAlias} created`);
 
-        if (enableSso) {
+        if (enableSsoProperty) {
           console.info(`Calling: enableSso...`);
           await enableSso(directoryId);
           console.info(`Enabled: SSO`);
