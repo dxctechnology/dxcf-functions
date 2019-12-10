@@ -49,8 +49,8 @@ exports.handler = async (event, context) => {
           throw new Error(`LogGroup invalid: must be a valid LogGroup Name, consisting of aphanumeric characters, slashes and dashes`);
         }
 
-        console.info(`DirectoryId: ${dId}`);
-        console.info(`LogGroup: ${lgName}`);
+        console.info(`DirectoryId: ${directoryId}`);
+        console.info(`LogGroup: ${logGroupName}`);
 
         console.info('Calling: createLogSubscription...');
         await createLogSubscription(directoryId, logGroupName);
@@ -77,7 +77,7 @@ exports.handler = async (event, context) => {
           throw new Error(`DirectoryId invalid: must be a valid Directory Id of the form d-9999999999, or "d-" followed by 10 hex digits`);
         }
 
-        console.info(`DirectoryId: ${dId}`);
+        console.info(`DirectoryId: ${directoryId}`);
 
         console.info(`Calling: deleteLogSubscription...`);
         await deleteLogSubscription(directoryId);
