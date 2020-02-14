@@ -1,5 +1,5 @@
 /**
-* CrossAccountVpc: A Lambda function that returns information about an EC2 VPC in another Region and/or Account.
+* VpcReference: A Lambda function that returns information about an EC2 VPC in another Region and/or Account.
 **/
 
 const response = require('cfn-response-promise');
